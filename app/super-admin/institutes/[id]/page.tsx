@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 
 interface DetailsData {
   institute: {
@@ -54,8 +54,9 @@ interface DetailsData {
   };
 }
 
-export default function InstituteDetailsPage({ params }: { params: { id: string } }) {
-  const id = params.id;
+export default function InstituteDetailsPage() {
+  const params = useParams<{ id: string }>();
+  const id = params?.id || '';
   const api = useApi();
   const router = useRouter();
   const { toast } = useToast();
