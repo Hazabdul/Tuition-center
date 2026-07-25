@@ -41,7 +41,14 @@ export async function GET(request: NextRequest) {
     query = query.order('date', { ascending: false });
     query = query.range((page - 1) * limit, page * limit - 1);
 
-    let { data, count, error } = await query;
+    let data: any[] | null = null;
+    let count: number | null = 0;
+    let error: any = null;
+
+    const res = await query;
+    data = res.data as any[] | null;
+    count = res.count;
+    error = res.error;
 
     if (error) {
       console.error('Fetch student attendance database error:', error);
@@ -54,7 +61,7 @@ export async function GET(request: NextRequest) {
       fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
 
       const fallbackRes = await fallbackQuery;
-      data = fallbackRes.data;
+      data = fallbackRes.data as any[] | null;
       count = fallbackRes.count;
     }
 

@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
     // Link batchIds if provided
     if (Array.isArray(batchIds) && batchIds.length > 0) {
       const batchInserts = batchIds.map((bid: string) => ({
-        batch_id: bid, subject_id: subject.id, institute_id: user.instituteId,
+        batch_id: bid, subject_id: subject!.id, institute_id: user.instituteId,
       }));
       await supabase.from('batch_subject').insert(batchInserts);
     }
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
     // Link teacherIds if provided
     if (Array.isArray(teacherIds) && teacherIds.length > 0) {
       const teacherInserts = teacherIds.map((tid: string) => ({
-        teacher_id: tid, subject_id: subject.id, institute_id: user.instituteId,
+        teacher_id: tid, subject_id: subject!.id, institute_id: user.instituteId,
       }));
       await supabase.from('teacher_subject').insert(teacherInserts);
     }
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
     // Link studentIds if provided
     if (Array.isArray(studentIds) && studentIds.length > 0) {
       const studentInserts = studentIds.map((sid: string) => ({
-        student_id: sid, subject_id: subject.id, institute_id: user.instituteId,
+        student_id: sid, subject_id: subject!.id, institute_id: user.instituteId,
       }));
       await supabase.from('student_subject').insert(studentInserts);
     }

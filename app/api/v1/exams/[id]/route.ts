@@ -8,12 +8,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
-    let { data: exam, error } = await supabase
+    let exam: any = null;
+    let error: any = null;
+
+    const res = await supabase
       .from('exams')
       .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code, academic_year)')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
       .maybeSingle();
+
+    exam = res.data;
+    error = res.error;
 
     if (error || !exam) {
       const fallbackRes = await supabase
