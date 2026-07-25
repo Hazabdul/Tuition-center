@@ -23,15 +23,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const userData = localStorage.getItem(USER_KEY);
-    const code = localStorage.getItem(INSTITUTE_CODE_KEY);
-    if (token && userData) {
-      setAccessToken(token);
-      setUser(JSON.parse(userData));
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const userData = localStorage.getItem(USER_KEY);
+      const code = localStorage.getItem(INSTITUTE_CODE_KEY);
+      if (token && userData && userData !== 'undefined') {
+        setAccessToken(token);
+        setUser(JSON.parse(userData));
+      }
+      if (code) setInstituteCode(code);
+    } catch {
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+    } finally {
+      setIsLoading(false);
     }
-    if (code) setInstituteCode(code);
-    setIsLoading(false);
   }, []);
 
   const login = useCallback((access: string, _refresh: string, userData: User, code?: string) => {
