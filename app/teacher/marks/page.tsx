@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
@@ -23,54 +23,39 @@ interface ExamOption {
 
 interface ExamSubject {
   id: string;
+  exam_id: string;
   subject_id: string;
   max_marks: number;
   passing_marks: number;
-  subject?: { id: string; name: string; code: string } | null;
-}
-
-interface ExamDetail {
-  id: string;
-  name: string;
-  code: string;
-  batch_id: string;
-  status: string;
-  exam_subjects?: ExamSubject[];
+  subject: {
+    id: string;
+    name: string;
+    code: string;
+  };
 }
 
 interface StudentRow {
   id: string;
+  student_id: string;
   first_name: string;
   last_name: string | null;
-  student_id: string;
+  roll_number: string | null;
 }
 
-interface BatchDetail {
+interface MarkRecord {
   id: string;
-  name: string;
-  code: string;
-  students?: StudentRow[];
-}
-
-interface ExistingMark {
-  id: string;
+  exam_id: string;
+  subject_id: string;
   student_id: string;
   obtained_marks: number | null;
   grade: string | null;
-  percentage: number | null;
-  is_pass: boolean;
   remarks: string | null;
+  is_pass: boolean | null;
 }
 
 interface MarkEntry {
   obtained_marks: string;
   remarks: string;
-}
-
-const GRADE_COLORS: Record<string, string> = {
-  'A+': 'bg-green-100 text-green-700 border-green-200',
-  'A': 'bg-green-100 text-green-700 border-green-200',
-  'B+': 'bg-blue-100 text-blue-700 border-blue-200',
   'B': 'bg-blue-100 text-blue-700 border-blue-200',
   'C': 'bg-amber-100 text-amber-700 border-amber-200',
   'D': 'bg-orange-100 text-orange-700 border-orange-200',
