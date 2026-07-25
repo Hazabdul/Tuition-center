@@ -53,9 +53,41 @@ interface MarkRecord {
   is_pass: boolean | null;
 }
 
+interface ExamDetail {
+  id: string;
+  name: string;
+  code: string;
+  batch_id: string;
+  status: string;
+  exam_subjects?: ExamSubject[];
+}
+
+interface BatchDetail {
+  id: string;
+  name: string;
+  code: string;
+  students?: StudentRow[];
+}
+
+interface ExistingMark {
+  id: string;
+  student_id: string;
+  obtained_marks: number | null;
+  grade: string | null;
+  percentage: number | null;
+  is_pass: boolean;
+  remarks: string | null;
+}
+
 interface MarkEntry {
   obtained_marks: string;
   remarks: string;
+}
+
+const GRADE_COLORS: Record<string, string> = {
+  'A+': 'bg-green-100 text-green-700 border-green-200',
+  'A': 'bg-green-100 text-green-700 border-green-200',
+  'B+': 'bg-blue-100 text-blue-700 border-blue-200',
   'B': 'bg-blue-100 text-blue-700 border-blue-200',
   'C': 'bg-amber-100 text-amber-700 border-amber-200',
   'D': 'bg-orange-100 text-orange-700 border-orange-200',
