@@ -14,12 +14,12 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || '';
     const sortBy = searchParams.get('sortBy') || 'created_at';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
-    const batchId = searchParams.get('batchId') || '';
+    const batchId = searchParams.get('batchId') || searchParams.get('batch_id') || '';
     const status = searchParams.get('status') || '';
 
     let query = supabase
       .from('exams')
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batch:batches(id, name, code)', { count: 'exact' })
+      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code)', { count: 'exact' })
       .eq('institute_id', user.instituteId)
       .is('deleted_at', null);
 
@@ -32,9 +32,34 @@ export async function GET(request: NextRequest) {
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     query = query.range((page - 1) * limit, page * limit - 1);
 
-    const { data, count } = await query;
+    let { data, count, error } = await query;
 
-    return apiSuccess(data || [], 'Exams fetched', {
+    if (error) {
+      console.error('Fetch exams database error:', error);
+      // Fallback query without relationship join if schema cache relationship fails
+      let fallbackQuery = supabase
+        .from('exams')
+        .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at', { count: 'exact' })
+        .eq('institute_id', user.instituteId)
+        .is('deleted_at', null);
+      if (batchId) fallbackQuery = fallbackQuery.eq('batch_id', batchId);
+      if (status) fallbackQuery = fallbackQuery.eq('status', status);
+      if (search) fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
+      fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
+      fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
+
+      const fallbackRes = await fallbackQuery;
+      data = fallbackRes.data;
+      count = fallbackRes.count;
+    }
+
+    // Format output so batch object is always available cleanly
+    const formattedData = (data || []).map((exam: any) => ({
+      ...exam,
+      batch: exam.batches || exam.batch || null,
+    }));
+
+    return apiSuccess(formattedData, 'Exams fetched', {
       page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
     });
   } catch (error) {
@@ -51,10 +76,18 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { batchId, name, code, academicYear, startDate, endDate, description } = body;
+    const batchId = body.batchId || body.batch_id;
+    const name = body.name;
+    let code = (body.code || name?.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || '').toUpperCase().trim();
+    if (!code) code = `EXAM${Math.floor(100 + Math.random() * 900)}`;
 
-    if (!batchId || !name || !code) {
-      return apiError('Batch ID, name, and code are required', 400);
+    const academicYear = body.academicYear || body.academic_year;
+    const startDate = body.startDate || body.start_date;
+    const endDate = body.endDate || body.end_date;
+    const description = body.description;
+
+    if (!batchId || !name) {
+      return apiError('Batch ID and exam name are required', 400);
     }
 
     const { data: batch } = await supabase

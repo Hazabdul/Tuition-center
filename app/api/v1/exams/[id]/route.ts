@@ -8,13 +8,25 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
-    const { data: exam, error } = await supabase
+    let { data: exam, error } = await supabase
       .from('exams')
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batch:batches(id, name, code, academic_year)')
+      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code, academic_year)')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
       .is('deleted_at', null)
       .maybeSingle();
+
+    if (error || !exam) {
+      const fallbackRes = await supabase
+        .from('exams')
+        .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at')
+        .eq('id', params.id)
+        .eq('institute_id', user.instituteId)
+        .is('deleted_at', null)
+        .maybeSingle();
+      exam = fallbackRes.data;
+      error = fallbackRes.error;
+    }
 
     if (error || !exam) return apiError('Exam not found', 404);
 
@@ -24,7 +36,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .eq('exam_id', params.id)
       .eq('institute_id', user.instituteId);
 
-    return apiSuccess({ ...exam, exam_subjects: examSubjects || [] }, 'Exam fetched successfully');
+    const formattedExam = {
+      ...exam,
+      batch: (exam as any).batches || (exam as any).batch || null,
+      exam_subjects: examSubjects || [],
+    };
+
+    return apiSuccess(formattedExam, 'Exam fetched successfully');
   } catch (error) {
     console.error('Get exam error:', error);
     return apiError('An error occurred', 500);
@@ -39,7 +57,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { batchId, name, code, academicYear, startDate, endDate, description } = body;
+    const batchId = body.batchId ?? body.batch_id;
+    const name = body.name;
+    const code = body.code ? body.code.toUpperCase().trim() : undefined;
+    const academicYear = body.academicYear ?? body.academic_year;
+    const startDate = body.startDate ?? body.start_date;
+    const endDate = body.endDate ?? body.end_date;
+    const description = body.description;
 
     const { data: existing } = await supabase
       .from('exams')
@@ -56,7 +80,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         .from('exams')
         .select('id')
         .eq('institute_id', user.instituteId)
-        .eq('code', code)
+        .ilike('code', code)
         .neq('id', params.id)
         .is('deleted_at', null)
         .maybeSingle();

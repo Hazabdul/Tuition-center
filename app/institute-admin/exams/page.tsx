@@ -45,16 +45,18 @@ export default function ExamsPage() {
     queryKey: ['exams', page, search],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: '20', search });
-      const res = await api.get<ExamRow[]>(`/api/v1/exams?${params}`);
-      return { data: res.data as ExamRow[], pagination: res.pagination! };
+      const res = await api.get<any>(`/api/v1/exams?${params}`);
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      return { data: list as ExamRow[], pagination: res.pagination || { totalPages: 1, total: list.length } };
     },
   });
 
   const { data: batchesData } = useQuery<{ data: Array<{ id: string; name: string; code: string }> }>({
-    queryKey: ['batches-list'],
+    queryKey: ['batches-list-exams'],
     queryFn: async () => {
-      const res = await api.get<Array<{ id: string; name: string; code: string }>>('/api/v1/batches?limit=100');
-      return { data: res.data as Array<{ id: string; name: string; code: string }> };
+      const res = await api.get<any>('/api/v1/batches?limit=200');
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      return { data: list };
     },
   });
 
@@ -154,10 +156,6 @@ export default function ExamsPage() {
         )}
       />
 
-      {!isLoading && (data?.data || []).length === 0 && !search && (
-        <EmptyState title="No exams yet" description="Create your first exam to start managing marks." action={<Button onClick={() => setShowCreate(true)}><Plus className="h-4 w-4 mr-2" /> Add Exam</Button>} />
-      )}
-
       <CreateExamDialog open={showCreate} onOpenChange={setShowCreate} onSubmit={(body) => createMutation.mutate(body)} isSubmitting={createMutation.isPending} batches={batchesData?.data || []} />
 
       <ConfirmDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)} title="Delete Exam" description={`Delete ${deleteTarget?.name}? This cannot be undone.`} onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)} confirmLabel="Delete" variant="destructive" isSubmitting={deleteMutation.isPending} />
@@ -182,15 +180,30 @@ function CreateExamDialog({ open, onOpenChange, onSubmit, isSubmitting, batches 
     description: '',
   });
 
+  const handleNameChange = (nameVal: string) => {
+    const autoCode = nameVal.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
+    setForm((prev) => ({
+      ...prev,
+      name: nameVal,
+      code: prev.code ? prev.code : autoCode,
+    }));
+  };
+
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title="Add Exam" description="Create a new examination" onSubmit={() => onSubmit(form)} submitLabel="Create" isSubmitting={isSubmitting} size="lg">
       <div className="grid grid-cols-2 gap-4 py-2">
-        <div className="space-y-1.5"><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mid-term Examination" /></div>
-        <div className="space-y-1.5"><Label>Code *</Label><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="MID2026" /></div>
+        <div className="space-y-1.5">
+          <Label>Exam Name *</Label>
+          <Input value={form.name} onChange={(e) => handleNameChange(e.target.value)} placeholder="Mid-term Examination" required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Exam Code</Label>
+          <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="e.g. MID2026 (Auto-generated if empty)" />
+        </div>
         <div className="space-y-1.5">
           <Label>Batch *</Label>
           <Select value={form.batch_id} onValueChange={(v) => setForm({ ...form, batch_id: v })}>
-            <SelectTrigger><SelectValue placeholder="Select batch" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={batches.length > 0 ? "Select batch" : "No batches available"} /></SelectTrigger>
             <SelectContent>
               {batches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name} ({b.code})</SelectItem>)}
             </SelectContent>
