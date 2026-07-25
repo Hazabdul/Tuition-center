@@ -9,16 +9,24 @@ import { PageHeader, StatusBadge, StatCard, EmptyState } from '@/components/shar
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft, Pencil, GraduationCap, Users, BookOpen, Phone, Mail, MapPin, Calendar, User, FileText, Plus, Link2, Unlink } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
-import type { Student, Batch, Parent } from '@/lib/types';
+import type { Student, Batch, Parent, Subject } from '@/lib/types';
+
+interface ExtendedSubject extends Subject {
+  isDirect?: boolean;
+  max_marks?: number;
+  passing_marks?: number;
+}
 
 interface StudentDetail extends Student {
   batches?: Batch[];
   parents?: Parent[];
+  subjects?: ExtendedSubject[];
 }
 
 export default function StudentDetailPage() {
@@ -30,6 +38,9 @@ export default function StudentDetailPage() {
 
   const [showLinkParent, setShowLinkParent] = useState(false);
   const [selectedParentId, setSelectedParentId] = useState('');
+
+  const [showLinkSubject, setShowLinkSubject] = useState(false);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
 
   const { data: student, isLoading } = useQuery<StudentDetail, Error>({
     queryKey: ['student', params.id],
@@ -48,6 +59,15 @@ export default function StudentDetailPage() {
     enabled: showLinkParent,
   });
 
+  const { data: availableSubjects } = useQuery<Subject[]>({
+    queryKey: ['subjects-available'],
+    queryFn: async () => {
+      const res = await api.get<Subject[]>('/api/v1/subjects?limit=100');
+      return res.data || [];
+    },
+    enabled: showLinkSubject,
+  });
+
   const linkParentMutation = useMutation({
     mutationFn: (parentId: string) => api.post(`/api/v1/students/${params.id}/link-parent`, { parentId }),
     onSuccess: () => {
@@ -63,6 +83,26 @@ export default function StudentDetailPage() {
     mutationFn: (parentId: string) => api.delete(`/api/v1/students/${params.id}/unlink-parent/${parentId}`),
     onSuccess: () => {
       toast({ title: 'Parent unlinked from student' });
+      queryClient.invalidateQueries({ queryKey: ['student', params.id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const linkSubjectMutation = useMutation({
+    mutationFn: (subjectId: string) => api.post(`/api/v1/students/${params.id}/subjects`, { subjectId }),
+    onSuccess: () => {
+      toast({ title: 'Subject linked to student!' });
+      setShowLinkSubject(false);
+      setSelectedSubjectId('');
+      queryClient.invalidateQueries({ queryKey: ['student', params.id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const unlinkSubjectMutation = useMutation({
+    mutationFn: (subjectId: string) => api.delete(`/api/v1/students/${params.id}/subjects?subjectId=${subjectId}`),
+    onSuccess: () => {
+      toast({ title: 'Direct subject link removed' });
       queryClient.invalidateQueries({ queryKey: ['student', params.id] });
     },
     onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
@@ -86,6 +126,9 @@ export default function StudentDetailPage() {
   const linkedParentIds = new Set(student.parents?.map((p: any) => p.id) || []);
   const linkableParents = (availableParents?.data || []).filter((p: any) => !linkedParentIds.has(p.id));
 
+  const linkedSubjectIds = new Set(student.subjects?.map((s: any) => s.id) || []);
+  const linkableSubjects = (availableSubjects || []).filter((s: any) => !linkedSubjectIds.has(s.id));
+
   return (
     <DashboardLayout navSections={instituteAdminNav} role="institute_admin">
       <Button variant="ghost" size="sm" onClick={() => router.push('/institute-admin/students')} className="mb-4 -ml-2 text-slate-600 hover:text-slate-900">
@@ -100,9 +143,9 @@ export default function StudentDetailPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard title="Batches" value={student.batches?.length || 0} icon={BookOpen} color="blue" />
+        <StatCard title="Subjects" value={student.subjects?.length || 0} icon={GraduationCap} color="purple" />
         <StatCard title="Parents" value={student.parents?.length || 0} icon={Users} color="green" />
         <StatCard title="Status" value={student.isActive ? 'Active' : 'Inactive'} icon={GraduationCap} color={student.isActive ? 'green' : 'gray'} />
-        <StatCard title="Academic Year" value={student.academicYear || (student as any).academic_year || '-'} icon={Calendar} color="purple" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -164,7 +207,7 @@ export default function StudentDetailPage() {
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-blue-500" /> Assigned Batches
+                <BookOpen className="h-5 w-5 text-blue-500" /> Enrolled Batches
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -188,7 +231,79 @@ export default function StudentDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Parents / Guardians Section with Bidirectional Link Option */}
+          {/* Enrolled & Linked Subjects */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <GraduationCap className="h-5 w-5 text-purple-500" /> Student Subjects
+                </CardTitle>
+                <Button size="sm" variant="outline" onClick={() => setShowLinkSubject(!showLinkSubject)}>
+                  <Plus className="h-4 w-4 mr-1" /> Link Direct Subject
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {showLinkSubject && (
+                <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
+                  <Label className="mb-2 block text-xs font-medium">Select Subject to Link Directly to Student</Label>
+                  <div className="flex gap-2">
+                    <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Choose subject..." /></SelectTrigger>
+                      <SelectContent>
+                        {linkableSubjects.length === 0 ? (
+                          <SelectItem value="_none" disabled>All available subjects are already linked</SelectItem>
+                        ) : (
+                          linkableSubjects.map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={() => selectedSubjectId && linkSubjectMutation.mutate(selectedSubjectId)}
+                      disabled={!selectedSubjectId || linkSubjectMutation.isPending}
+                    >
+                      <Link2 className="h-4 w-4 mr-1" /> Link
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {(!student.subjects || student.subjects.length === 0) ? (
+                <EmptyState title="No subjects linked" description="No subjects are assigned to this student either directly or through a batch." />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {student.subjects.map((subject: any) => (
+                    <div key={subject.id} className="p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-slate-900">{subject.name}</p>
+                          <Badge variant="outline" className={`text-[10px] ${subject.isDirect ? 'border-purple-200 bg-purple-50 text-purple-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+                            {subject.isDirect ? 'Direct' : 'Via Batch'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">{subject.code} · Max: {subject.maxMarks ?? subject.max_marks ?? 100}</p>
+                      </div>
+                      {subject.isDirect && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => unlinkSubjectMutation.mutate(subject.id)}
+                          disabled={unlinkSubjectMutation.isPending}
+                        >
+                          <Unlink className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Parents / Guardians Section */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -203,7 +318,7 @@ export default function StudentDetailPage() {
             <CardContent>
               {showLinkParent && (
                 <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
-                  <Label className="mb-2 block">Select Parent / Guardian to Link</Label>
+                  <Label className="mb-2 block text-xs font-medium">Select Parent / Guardian to Link</Label>
                   <div className="flex gap-2">
                     <Select value={selectedParentId} onValueChange={setSelectedParentId}>
                       <SelectTrigger className="flex-1"><SelectValue placeholder="Choose parent..." /></SelectTrigger>

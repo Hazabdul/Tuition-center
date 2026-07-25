@@ -50,14 +50,14 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { name, code, description, maxMarks, passingMarks } = body;
+    const { name, code, description, maxMarks, passingMarks, batchIds, teacherIds, studentIds } = body;
 
     if (!name || !code) return apiError('Name and code are required', 400);
 
     const { data: existingCode } = await supabase.from('subjects').select('id').eq('institute_id', user.instituteId).eq('code', code).is('deleted_at', null).maybeSingle();
     if (existingCode) return apiError('Subject code already exists in this institute', 409);
 
-    if (maxMarks !== undefined && passingMarks !== undefined && passingMarks > maxMarks) {
+    if (maxMarks !== undefined && passingMarks !== undefined && Number(passingMarks) > Number(maxMarks)) {
       return apiError('Passing marks cannot exceed max marks', 400);
     }
 
@@ -66,13 +66,37 @@ export async function POST(request: NextRequest) {
       .insert({
         institute_id: user.instituteId,
         name, code, description,
-        max_marks: maxMarks || 100, passing_marks: passingMarks || 40,
+        max_marks: maxMarks ? Number(maxMarks) : 100, passing_marks: passingMarks ? Number(passingMarks) : 40,
         is_active: true,
       })
       .select('id, name, code')
       .single();
 
     if (error) return apiError(error.message, 400);
+
+    // Link batchIds if provided
+    if (Array.isArray(batchIds) && batchIds.length > 0) {
+      const batchInserts = batchIds.map((bid: string) => ({
+        batch_id: bid, subject_id: subject.id, institute_id: user.instituteId,
+      }));
+      await supabase.from('batch_subject').insert(batchInserts);
+    }
+
+    // Link teacherIds if provided
+    if (Array.isArray(teacherIds) && teacherIds.length > 0) {
+      const teacherInserts = teacherIds.map((tid: string) => ({
+        teacher_id: tid, subject_id: subject.id, institute_id: user.instituteId,
+      }));
+      await supabase.from('teacher_subject').insert(teacherInserts);
+    }
+
+    // Link studentIds if provided
+    if (Array.isArray(studentIds) && studentIds.length > 0) {
+      const studentInserts = studentIds.map((sid: string) => ({
+        student_id: sid, subject_id: subject.id, institute_id: user.instituteId,
+      }));
+      await supabase.from('student_subject').insert(studentInserts);
+    }
 
     await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'subject_created', entityType: 'subject', entityId: subject.id, newValues: body, request });
 

@@ -20,12 +20,27 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const { data: batches } = await supabase
       .from('batch_subject')
-      .select('batch:batches(id, name, code)')
+      .select('batch:batches(id, name, code, academic_year, start_time, end_time, is_active)')
+      .eq('subject_id', params.id);
+
+    const { data: teachers } = await supabase
+      .from('teacher_subject')
+      .select('teacher:teachers(id, first_name, last_name, employee_id, specialization, is_active)')
+      .eq('subject_id', params.id);
+
+    const { data: students } = await supabase
+      .from('student_subject')
+      .select('student:students(id, first_name, last_name, student_id, admission_number, is_active)')
       .eq('subject_id', params.id);
 
     return apiSuccess({
       ...subject,
-      batches: batches?.map(b => b.batch) || [],
+      maxMarks: subject.max_marks,
+      passingMarks: subject.passing_marks,
+      isActive: subject.is_active,
+      batches: (batches || []).map((b: any) => b.batch).filter(Boolean),
+      teachers: (teachers || []).map((t: any) => t.teacher).filter(Boolean),
+      students: (students || []).map((s: any) => s.student).filter(Boolean),
     });
   } catch (error) {
     console.error('Get subject error:', error);

@@ -10,10 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, MoreHorizontal, Eye, Pencil, Trash2, UserCheck, UserX } from 'lucide-react';
+import { Plus, MoreHorizontal, Eye, Pencil, Trash2, UserCheck, UserX, BookOpen, GraduationCap, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
+import type { Batch, Teacher, Student } from '@/lib/types';
 
 interface SubjectRow {
   id: string;
@@ -93,7 +95,7 @@ export default function SubjectsPage() {
 
   return (
     <DashboardLayout navSections={instituteAdminNav} role="institute_admin">
-      <PageHeader title="Subjects" description="Manage academic subjects" />
+      <PageHeader title="Subjects" description="Manage academic subjects and link them to batches, teachers, and students" />
 
       <DataTable<SubjectRow>
         columns={columns}
@@ -111,8 +113,8 @@ export default function SubjectsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => router.push(`/institute-admin/subjects/${row.id}/edit`)}><Eye className="mr-2 h-4 w-4" /> View / Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push(`/institute-admin/subjects/${row.id}/edit`)}><Pencil className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push(`/institute-admin/subjects/${row.id}/edit`)}><Eye className="mr-2 h-4 w-4" /> View / Edit / Links</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push(`/institute-admin/subjects/${row.id}/edit`)}><Pencil className="mr-2 h-4 w-4" /> Edit Details</DropdownMenuItem>
               <DropdownMenuSeparator />
               {row.is_active ? (
                 <DropdownMenuItem onClick={() => statusMutation.mutate({ id: row.id, isActive: false })}><UserX className="mr-2 h-4 w-4" /> Deactivate</DropdownMenuItem>
@@ -148,20 +150,142 @@ function CreateSubjectDialog({ open, onOpenChange, onSubmit, isSubmitting }: {
   onSubmit: (body: Record<string, unknown>) => void;
   isSubmitting: boolean;
 }) {
+  const api = useApi();
   const [form, setForm] = useState({
     name: '', code: '', description: '', maxMarks: '100', passingMarks: '40',
   });
+  const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
+  const [selectedTeachers, setSelectedTeachers] = useState<string[]>([]);
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+
+  const { data: batches } = useQuery<Batch[]>({
+    queryKey: ['batches-picker'],
+    queryFn: async () => {
+      const res = await api.get<Batch[]>('/api/v1/batches?limit=100');
+      return res.data || [];
+    },
+    enabled: open,
+  });
+
+  const { data: teachers } = useQuery<Teacher[]>({
+    queryKey: ['teachers-picker'],
+    queryFn: async () => {
+      const res = await api.get<Teacher[]>('/api/v1/teachers?limit=100');
+      return res.data || [];
+    },
+    enabled: open,
+  });
+
+  const { data: students } = useQuery<Student[]>({
+    queryKey: ['students-picker'],
+    queryFn: async () => {
+      const res = await api.get<Student[]>('/api/v1/students?limit=100');
+      return res.data || [];
+    },
+    enabled: open,
+  });
+
+  const handleSubmit = () => {
+    onSubmit({
+      ...form,
+      batchIds: selectedBatches,
+      teacherIds: selectedTeachers,
+      studentIds: selectedStudents,
+    });
+  };
+
+  const toggleItem = (list: string[], setList: (val: string[]) => void, id: string) => {
+    if (list.includes(id)) {
+      setList(list.filter(item => item !== id));
+    } else {
+      setList([...list, id]);
+    }
+  };
 
   return (
-    <FormDialog open={open} onOpenChange={onOpenChange} title="Add Subject" description="Create a new academic subject" onSubmit={() => onSubmit(form)} submitLabel="Create" isSubmitting={isSubmitting}>
-      <div className="grid grid-cols-1 gap-4 py-2">
-        <div className="space-y-1.5"><Label>Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mathematics" /></div>
-        <div className="space-y-1.5"><Label>Code *</Label><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="MATH" /></div>
+    <FormDialog open={open} onOpenChange={onOpenChange} title="Add Subject" description="Create a new academic subject and optionally link to batch, teacher, or student" onSubmit={handleSubmit} submitLabel="Create Subject" isSubmitting={isSubmitting}>
+      <div className="grid grid-cols-1 gap-4 py-2 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5"><Label>Subject Name *</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mathematics" required /></div>
+          <div className="space-y-1.5"><Label>Subject Code *</Label><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="MATH" required /></div>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5"><Label>Max Marks</Label><Input type="number" value={form.maxMarks} onChange={(e) => setForm({ ...form, maxMarks: e.target.value })} /></div>
           <div className="space-y-1.5"><Label>Passing Marks</Label><Input type="number" value={form.passingMarks} onChange={(e) => setForm({ ...form, passingMarks: e.target.value })} /></div>
         </div>
-        <div className="space-y-1.5"><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></div>
+        <div className="space-y-1.5"><Label>Description</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} placeholder="Optional course description..." /></div>
+
+        {/* Link Batches */}
+        <div className="border-t border-slate-100 pt-3 space-y-2">
+          <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+            <BookOpen className="h-4 w-4 text-blue-500" /> Link to Batches (Optional)
+          </Label>
+          <div className="max-h-28 overflow-y-auto rounded-md border border-slate-200 p-2 space-y-1.5">
+            {(!batches || batches.length === 0) ? (
+              <p className="text-xs text-slate-400">No batches available</p>
+            ) : (
+              batches.map((b: any) => (
+                <label key={b.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                  <Checkbox
+                    checked={selectedBatches.includes(b.id)}
+                    onCheckedChange={() => toggleItem(selectedBatches, setSelectedBatches, b.id)}
+                  />
+                  <span>{b.name} ({b.code})</span>
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Link Teachers */}
+        <div className="border-t border-slate-100 pt-3 space-y-2">
+          <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+            <Users className="h-4 w-4 text-purple-500" /> Link to Teachers (Optional)
+          </Label>
+          <div className="max-h-28 overflow-y-auto rounded-md border border-slate-200 p-2 space-y-1.5">
+            {(!teachers || teachers.length === 0) ? (
+              <p className="text-xs text-slate-400">No teachers available</p>
+            ) : (
+              teachers.map((t: any) => {
+                const name = `${t.firstName || t.first_name || ''} ${t.lastName || t.last_name || ''}`.trim() || 'Teacher';
+                return (
+                  <label key={t.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                    <Checkbox
+                      checked={selectedTeachers.includes(t.id)}
+                      onCheckedChange={() => toggleItem(selectedTeachers, setSelectedTeachers, t.id)}
+                    />
+                    <span>{name} ({t.employeeId || t.employee_id})</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Link Students */}
+        <div className="border-t border-slate-100 pt-3 space-y-2">
+          <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+            <GraduationCap className="h-4 w-4 text-green-500" /> Link Direct to Students (Optional)
+          </Label>
+          <div className="max-h-28 overflow-y-auto rounded-md border border-slate-200 p-2 space-y-1.5">
+            {(!students || students.length === 0) ? (
+              <p className="text-xs text-slate-400">No students available</p>
+            ) : (
+              students.map((s: any) => {
+                const name = `${s.firstName || s.first_name || ''} ${s.lastName || s.last_name || ''}`.trim() || 'Student';
+                return (
+                  <label key={s.id} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                    <Checkbox
+                      checked={selectedStudents.includes(s.id)}
+                      onCheckedChange={() => toggleItem(selectedStudents, setSelectedStudents, s.id)}
+                    />
+                    <span>{name} ({s.studentId || s.student_id})</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     </FormDialog>
   );

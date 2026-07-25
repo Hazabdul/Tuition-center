@@ -1,14 +1,18 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { instituteAdminNav } from '@/lib/nav/institute-admin';
 import { PageHeader, StatusBadge, StatCard, EmptyState } from '@/components/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Pencil, Users, BookOpen, Mail, Phone, MapPin, Calendar, Briefcase, GraduationCap, FileText } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ArrowLeft, Pencil, Users, BookOpen, Mail, Phone, MapPin, Calendar, Briefcase, GraduationCap, FileText, Plus, Link2, Unlink } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
 import type { Teacher, Batch, Subject } from '@/lib/types';
 
@@ -21,6 +25,11 @@ export default function TeacherDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const api = useApi();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [showLinkSubject, setShowLinkSubject] = useState(false);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
 
   const { data: teacher, isLoading } = useQuery<TeacherDetail, Error>({
     queryKey: ['teacher', params.id],
@@ -28,6 +37,35 @@ export default function TeacherDetailPage() {
       const res = await api.get<TeacherDetail>(`/api/v1/teachers/${params.id}`);
       return res.data;
     },
+  });
+
+  const { data: availableSubjects } = useQuery<Subject[]>({
+    queryKey: ['subjects-available'],
+    queryFn: async () => {
+      const res = await api.get<Subject[]>('/api/v1/subjects?limit=100');
+      return res.data || [];
+    },
+    enabled: showLinkSubject,
+  });
+
+  const linkSubjectMutation = useMutation({
+    mutationFn: (subjectId: string) => api.post(`/api/v1/teachers/${params.id}/subjects`, { subjectId }),
+    onSuccess: () => {
+      toast({ title: 'Subject assigned to teacher!' });
+      setShowLinkSubject(false);
+      setSelectedSubjectId('');
+      queryClient.invalidateQueries({ queryKey: ['teacher', params.id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const unlinkSubjectMutation = useMutation({
+    mutationFn: (subjectId: string) => api.delete(`/api/v1/teachers/${params.id}/subjects?subjectId=${subjectId}`),
+    onSuccess: () => {
+      toast({ title: 'Subject unlinked from teacher' });
+      queryClient.invalidateQueries({ queryKey: ['teacher', params.id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
   });
 
   if (isLoading || !teacher) {
@@ -44,6 +82,9 @@ export default function TeacherDetailPage() {
       </DashboardLayout>
     );
   }
+
+  const linkedSubjectIds = new Set(teacher.subjects?.map((s: any) => s.id) || []);
+  const linkableSubjects = (availableSubjects || []).filter((s: any) => !linkedSubjectIds.has(s.id));
 
   return (
     <DashboardLayout navSections={instituteAdminNav} role="institute_admin">
@@ -136,19 +177,55 @@ export default function TeacherDetailPage() {
           {/* Assigned Subjects */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <GraduationCap className="h-5 w-5 text-purple-500" /> Assigned Subjects
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <GraduationCap className="h-5 w-5 text-purple-500" /> Assigned Subjects
+                </CardTitle>
+                <Button size="sm" variant="outline" onClick={() => setShowLinkSubject(!showLinkSubject)}>
+                  <Plus className="h-4 w-4 mr-1" /> Assign Subject
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
+              {showLinkSubject && (
+                <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
+                  <Label className="mb-2 block text-xs font-medium">Select Subject to Assign</Label>
+                  <div className="flex gap-2">
+                    <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Choose subject..." /></SelectTrigger>
+                      <SelectContent>
+                        {linkableSubjects.length === 0 ? (
+                          <SelectItem value="_none" disabled>All subjects are already assigned</SelectItem>
+                        ) : (
+                          linkableSubjects.map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={() => selectedSubjectId && linkSubjectMutation.mutate(selectedSubjectId)}
+                      disabled={!selectedSubjectId || linkSubjectMutation.isPending}
+                    >
+                      <Link2 className="h-4 w-4 mr-1" /> Assign
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {(!teacher.subjects || teacher.subjects.length === 0) ? (
                 <EmptyState title="No subjects assigned" description="This teacher is not assigned to any subject yet." />
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {teacher.subjects.map((subject: Subject) => (
-                    <div key={subject.id} className="p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
-                      <p className="text-sm font-medium text-slate-900">{subject.name}</p>
-                      <p className="text-xs text-slate-500">{subject.code} · Max: {subject.maxMarks} · Pass: {subject.passingMarks}</p>
+                  {teacher.subjects.map((subject: any) => (
+                    <div key={subject.id} className="p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{subject.name}</p>
+                        <p className="text-xs text-slate-500">{subject.code} · Max: {subject.maxMarks ?? subject.max_marks ?? 100} · Pass: {subject.passingMarks ?? subject.passing_marks ?? 40}</p>
+                      </div>
+                      <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50" onClick={() => unlinkSubjectMutation.mutate(subject.id)}>
+                        <Unlink className="h-4 w-4" />
+                      </Button>
                     </div>
                   ))}
                 </div>

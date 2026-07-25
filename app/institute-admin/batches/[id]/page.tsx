@@ -35,8 +35,10 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
   const [activeTab, setActiveTab] = useState<TabKey>('students');
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [showAddTeacher, setShowAddTeacher] = useState(false);
+  const [showAddSubject, setShowAddSubject] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
 
   const { data: batch, isLoading } = useQuery<BatchDetail, Error>({
     queryKey: ['batch', id],
@@ -62,6 +64,35 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
       return res.data || [];
     },
     enabled: showAddTeacher,
+  });
+
+  const { data: allSubjects } = useQuery<Subject[]>({
+    queryKey: ['all-subjects-picker'],
+    queryFn: async () => {
+      const res = await api.get<Subject[]>('/api/v1/subjects?limit=200');
+      return res.data || [];
+    },
+    enabled: showAddSubject,
+  });
+
+  const assignSubjectMutation = useMutation({
+    mutationFn: (subjectId: string) => api.post(`/api/v1/batches/${id}/subjects`, { subjectId }),
+    onSuccess: () => {
+      toast({ title: 'Subject assigned to batch successfully!' });
+      setShowAddSubject(false);
+      setSelectedSubjectId('');
+      queryClient.invalidateQueries({ queryKey: ['batch', id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const unassignSubjectMutation = useMutation({
+    mutationFn: (subjectId: string) => api.delete(`/api/v1/batches/${id}/subjects?subjectId=${subjectId}`),
+    onSuccess: () => {
+      toast({ title: 'Subject unlinked from batch' });
+      queryClient.invalidateQueries({ queryKey: ['batch', id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
   });
 
   const enrollStudentMutation = useMutation({
@@ -200,6 +231,11 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
                 <UserPlus className="h-4 w-4 mr-1.5" /> Assign Teacher
               </Button>
             )}
+            {activeTab === 'subjects' && (
+              <Button size="sm" onClick={() => setShowAddSubject(true)} className="bg-purple-600 hover:bg-purple-700 text-xs">
+                <Plus className="h-4 w-4 mr-1.5" /> Assign Subject
+              </Button>
+            )}
           </div>
         </CardHeader>
 
@@ -292,21 +328,23 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
 
           {activeTab === 'subjects' && (
             (!batch.subjects || batch.subjects.length === 0) ? (
-              <EmptyState title="No subjects assigned" description="No subjects are assigned to this batch yet." />
+              <EmptyState title="No subjects assigned" description="No subjects are assigned to this batch yet." action={
+                <Button size="sm" onClick={() => setShowAddSubject(true)} className="bg-purple-600 hover:bg-purple-700"><Plus className="h-4 w-4 mr-1.5" /> Assign Subject</Button>
+              } />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {batch.subjects.map((subject: Subject) => (
-                  <div key={subject.id} className="p-4 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{subject.name}</p>
-                        <p className="text-xs text-slate-500">{subject.code}</p>
+                {batch.subjects.map((subject: any) => (
+                  <div key={subject.id} className="p-4 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{subject.name}</p>
+                      <p className="text-xs text-slate-500">{subject.code}</p>
+                      <div className="mt-2 text-xs text-slate-500">
+                        <span>Max: {subject.maxMarks ?? subject.max_marks ?? 100}</span> · <span>Pass: {subject.passingMarks ?? subject.passing_marks ?? 40}</span>
                       </div>
-                      <StatusBadge status={subject.isActive ? 'active' : 'inactive'} />
                     </div>
-                    <div className="mt-2 text-xs text-slate-500">
-                      <span>Max: {subject.maxMarks}</span> · <span>Pass: {subject.passingMarks}</span>
-                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => unassignSubjectMutation.mutate(subject.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -397,6 +435,45 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
               className="bg-green-600 hover:bg-green-700"
             >
               {assignTeacherMutation.isPending ? 'Assigning...' : 'Assign Teacher'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Subject Dialog */}
+      <Dialog open={showAddSubject} onOpenChange={setShowAddSubject}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-purple-600" />
+              <span>Assign Subject to {batch.name}</span>
+            </DialogTitle>
+            <DialogDescription>Select an academic subject to assign to this batch</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label className="text-xs">Select Subject *</Label>
+            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose subject..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(allSubjects || [])
+                  .filter((s: any) => !batch.subjects?.some((bs: any) => bs.id === s.id))
+                  .map((s: any) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name} ({s.code})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => selectedSubjectId && assignSubjectMutation.mutate(selectedSubjectId)}
+              disabled={!selectedSubjectId || assignSubjectMutation.isPending}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              {assignSubjectMutation.isPending ? 'Assigning...' : 'Assign Subject'}
             </Button>
           </DialogFooter>
         </DialogContent>
