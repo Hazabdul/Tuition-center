@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
 
     // Fetch user names separately to avoid complex joins
-    const userIds = [...new Set((data || []).map((l: Record<string, unknown>) => l.user_id).filter(Boolean))];
+    const userIds = Array.from(new Set((data || []).map((l: Record<string, unknown>) => l.user_id).filter(Boolean)));
     let userMap: Record<string, string> = {};
     if (userIds.length > 0) {
       const { data: users } = await supabase

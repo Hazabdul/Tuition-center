@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, ReactNode } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth-context';
@@ -10,7 +10,10 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import { Menu, LogOut, User as UserIcon, KeyRound, Bell, ChevronRight, GraduationCap } from 'lucide-react';
+import {
+  Menu, LogOut, User as UserIcon, KeyRound, Bell, ChevronRight, GraduationCap,
+  PanelLeftClose, PanelLeftOpen, ChevronLeft
+} from 'lucide-react';
 import Link from 'next/link';
 import { ROLE_LABELS } from '@/lib/constants';
 import type { Role } from '@/lib/types';
@@ -40,6 +43,26 @@ export function DashboardLayout({
   const { user, logout, instituteCode } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Collapsible Sidebar State (persisted in localStorage)
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      if (saved === 'true') setCollapsed(true);
+    }
+  }, []);
+
+  function toggleCollapse() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sidebar_collapsed', String(next));
+      }
+      return next;
+    });
+  }
+
   const userInitials = user
     ? `${user.firstName.charAt(0)}${user.lastName?.charAt(0) || ''}`.toUpperCase()
     : 'U';
@@ -49,12 +72,16 @@ export function DashboardLayout({
     router.push(role === 'super_admin' ? '/auth/super-admin/login' : '/auth/login');
   }
 
-  function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+  function NavLinks({ isCollapsed = false, onNavigate }: { isCollapsed?: boolean; onNavigate?: () => void }) {
     return (
-      <nav className="flex flex-col gap-6 px-3 py-4">
+      <nav className={`flex flex-col gap-5 py-4 ${isCollapsed ? 'px-2' : 'px-3'}`}>
         {navSections.map((section) => (
           <div key={section.title}>
-            <p className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">{section.title}</p>
+            {!isCollapsed ? (
+              <p className="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">{section.title}</p>
+            ) : (
+              <div className="h-px bg-slate-200 my-2 mx-1" />
+            )}
             <div className="flex flex-col gap-1">
               {section.items.map((item) => {
                 const Icon = item.icon;
@@ -64,14 +91,17 @@ export function DashboardLayout({
                     key={item.href}
                     href={item.href}
                     onClick={onNavigate}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    title={isCollapsed ? item.label : undefined}
+                    className={`flex items-center gap-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      isCollapsed ? 'justify-center px-0 hover:bg-slate-100' : 'px-3'
+                    } ${
                       isActive
-                        ? 'bg-blue-50 text-blue-700'
+                        ? 'bg-blue-50 text-blue-700 shadow-sm'
                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     }`}
                   >
                     <Icon className="h-4 w-4 flex-shrink-0" />
-                    {item.label}
+                    {!isCollapsed && <span className="truncate">{item.label}</span>}
                   </Link>
                 );
               })}
@@ -122,32 +152,51 @@ export function DashboardLayout({
         </div>
       )}
 
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col border-r border-slate-200 bg-white">
-        <div className="flex items-center gap-2 px-6 h-16 border-b border-slate-200">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
-            <GraduationCap className="h-5 w-5 text-white" />
+      {/* Desktop Collapsible Sidebar */}
+      <aside
+        className={`hidden lg:flex fixed inset-y-0 left-0 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out z-40 ${
+          collapsed ? 'w-16' : 'w-64'
+        }`}
+      >
+        <div className={`flex items-center h-16 border-b border-slate-200 ${collapsed ? 'justify-center px-0' : 'justify-between px-5'}`}>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 flex-shrink-0">
+              <GraduationCap className="h-5 w-5 text-white" />
+            </div>
+            {!collapsed && <span className="font-bold text-slate-900 text-base">EduManage</span>}
           </div>
-          <span className="font-bold text-slate-900">EduManage</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleCollapse}
+            title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            className="h-8 w-8 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </Button>
         </div>
+
         <div className="flex-1 overflow-y-auto">
-          <NavLinks />
+          <NavLinks isCollapsed={collapsed} />
         </div>
-        <div className="border-t border-slate-200 p-4">
+
+        <div className={`border-t border-slate-200 p-3 ${collapsed ? 'flex justify-center' : ''}`}>
           <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8">
+            <Avatar className="h-8 w-8 flex-shrink-0">
               <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-semibold">{userInitials}</AvatarFallback>
             </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-900 truncate">{user?.firstName} {user?.lastName}</p>
-              <p className="text-xs text-slate-500 truncate">{ROLE_LABELS[role]}</p>
-            </div>
+            {!collapsed && (
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-900 truncate">{user?.firstName} {user?.lastName}</p>
+                <p className="text-xs text-slate-500 truncate">{ROLE_LABELS[role]}</p>
+              </div>
+            )}
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <div className="lg:pl-64">
+      {/* Main Content (Padded dynamically based on sidebar collapse) */}
+      <div className={`transition-all duration-300 ease-in-out ${collapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         {/* Top Navigation */}
         <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 border-b border-slate-200 bg-white/80 backdrop-blur">
           <div className="flex items-center gap-3">
@@ -168,6 +217,17 @@ export function DashboardLayout({
                 <NavLinks onNavigate={() => setMobileOpen(false)} />
               </SheetContent>
             </Sheet>
+
+            {/* Quick Toggle Button on Header for Desktop */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleCollapse}
+              title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+              className="hidden lg:inline-flex h-8 w-8 text-slate-500 hover:text-slate-900"
+            >
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
 
             {/* Breadcrumbs */}
             <div className="hidden md:flex items-center gap-1 text-sm text-slate-500">
@@ -247,7 +307,7 @@ function NotificationBellDropdown() {
         return { notifications: [], unreadCount: 0 };
       }
     },
-    refetchInterval: 10000, // Poll every 10 seconds for real-time alerts
+    refetchInterval: 10000,
   });
 
   async function handleMarkAllRead() {

@@ -87,7 +87,7 @@ export default function StudentDetailPage() {
               <InfoRow icon={Mail} label="Email" value={student.email} />
               <InfoRow icon={Phone} label="Phone" value={student.phone} />
               <InfoRow icon={Phone} label="Alt Phone" value={student.altPhone} />
-              <InfoRow icon={Calendar} label="Date of Birth" value={student.dateOfBirth ? formatDate(student.dateOfBirth) : null} />
+              <InfoRow icon={Calendar} label="Date of Birth" value={formatDate(student.dateOfBirth)} />
               <InfoRow icon={User} label="Gender" value={student.gender} />
               <InfoRow icon={MapPin} label="Address" value={student.address} />
               <InfoRow icon={Calendar} label="Admission Date" value={formatDate(student.admissionDate)} />

@@ -1,15 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { use, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { instituteAdminNav } from '@/lib/nav/institute-admin';
 import { PageHeader, StatusBadge, StatCard, EmptyState } from '@/components/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Pencil, Users, GraduationCap, BookOpen, Calendar, Clock, FileText } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { ArrowLeft, Pencil, Users, GraduationCap, BookOpen, Calendar, Clock, FileText, Plus, Trash2, UserPlus } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
 import type { Batch, Student, Teacher, Subject } from '@/lib/types';
 
@@ -21,18 +25,83 @@ interface BatchDetail extends Batch {
 
 type TabKey = 'students' | 'teachers' | 'subjects';
 
-export default function BatchDetailPage() {
-  const params = useParams<{ id: string }>();
+export default function BatchDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const router = useRouter();
   const api = useApi();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
   const [activeTab, setActiveTab] = useState<TabKey>('students');
+  const [showAddStudent, setShowAddStudent] = useState(false);
+  const [showAddTeacher, setShowAddTeacher] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [selectedTeacherId, setSelectedTeacherId] = useState('');
 
   const { data: batch, isLoading } = useQuery<BatchDetail, Error>({
-    queryKey: ['batch', params.id],
+    queryKey: ['batch', id],
     queryFn: async () => {
-      const res = await api.get<BatchDetail>(`/api/v1/batches/${params.id}`);
+      const res = await api.get<BatchDetail>(`/api/v1/batches/${id}`);
       return res.data;
     },
+  });
+
+  const { data: allStudents } = useQuery<Student[]>({
+    queryKey: ['all-students-picker'],
+    queryFn: async () => {
+      const res = await api.get<Student[]>('/api/v1/students?limit=200');
+      return res.data || [];
+    },
+    enabled: showAddStudent,
+  });
+
+  const { data: allTeachers } = useQuery<Teacher[]>({
+    queryKey: ['all-teachers-picker'],
+    queryFn: async () => {
+      const res = await api.get<Teacher[]>('/api/v1/teachers?limit=200');
+      return res.data || [];
+    },
+    enabled: showAddTeacher,
+  });
+
+  const enrollStudentMutation = useMutation({
+    mutationFn: (studentId: string) => api.post(`/api/v1/batches/${id}/students`, { studentId }),
+    onSuccess: () => {
+      toast({ title: 'Student enrolled in batch successfully!' });
+      setShowAddStudent(false);
+      setSelectedStudentId('');
+      queryClient.invalidateQueries({ queryKey: ['batch', id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const unenrollStudentMutation = useMutation({
+    mutationFn: (studentId: string) => api.delete(`/api/v1/batches/${id}/students?studentId=${studentId}`),
+    onSuccess: () => {
+      toast({ title: 'Student unenrolled from batch' });
+      queryClient.invalidateQueries({ queryKey: ['batch', id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const assignTeacherMutation = useMutation({
+    mutationFn: (teacherId: string) => api.post(`/api/v1/batches/${id}/teachers`, { teacherId }),
+    onSuccess: () => {
+      toast({ title: 'Teacher assigned to batch successfully!' });
+      setShowAddTeacher(false);
+      setSelectedTeacherId('');
+      queryClient.invalidateQueries({ queryKey: ['batch', id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
+  });
+
+  const unassignTeacherMutation = useMutation({
+    mutationFn: (teacherId: string) => api.delete(`/api/v1/batches/${id}/teachers?teacherId=${teacherId}`),
+    onSuccess: () => {
+      toast({ title: 'Teacher unassigned from batch' });
+      queryClient.invalidateQueries({ queryKey: ['batch', id] });
+    },
+    onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
   });
 
   if (isLoading || !batch) {
@@ -87,7 +156,7 @@ export default function BatchDetailPage() {
               <InfoRow icon={FileText} label="Description" value={batch.description} />
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-slate-100">
+          <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between">
             <StatusBadge status={batch.isActive ? 'active' : 'inactive'} />
           </div>
         </CardContent>
@@ -95,7 +164,7 @@ export default function BatchDetailPage() {
 
       {/* Tabs */}
       <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="border-b border-slate-100 pb-0">
+        <CardHeader className="border-b border-slate-100 pb-0 flex flex-row items-center justify-between">
           <div className="flex gap-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -118,11 +187,28 @@ export default function BatchDetailPage() {
               );
             })}
           </div>
+
+          {/* Tab Action Buttons */}
+          <div>
+            {activeTab === 'students' && (
+              <Button size="sm" onClick={() => setShowAddStudent(true)} className="bg-blue-600 hover:bg-blue-700 text-xs">
+                <UserPlus className="h-4 w-4 mr-1.5" /> Enroll Student
+              </Button>
+            )}
+            {activeTab === 'teachers' && (
+              <Button size="sm" onClick={() => setShowAddTeacher(true)} className="bg-green-600 hover:bg-green-700 text-xs">
+                <UserPlus className="h-4 w-4 mr-1.5" /> Assign Teacher
+              </Button>
+            )}
+          </div>
         </CardHeader>
+
         <CardContent className="pt-6">
           {activeTab === 'students' && (
             (!batch.students || batch.students.length === 0) ? (
-              <EmptyState title="No students enrolled" description="No students are assigned to this batch yet." />
+              <EmptyState title="No students enrolled" description="No students are assigned to this batch yet." action={
+                <Button size="sm" onClick={() => setShowAddStudent(true)}><UserPlus className="h-4 w-4 mr-1.5" /> Enroll Student</Button>
+              } />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -139,11 +225,14 @@ export default function BatchDetailPage() {
                     {batch.students.map((student: Student) => (
                       <tr key={student.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 font-medium text-slate-900">{student.firstName} {student.lastName}</td>
-                        <td className="px-4 py-3 text-slate-500">{student.studentId}</td>
+                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">{student.studentId}</td>
                         <td className="px-4 py-3 text-slate-500">{student.email || student.phone || '-'}</td>
                         <td className="px-4 py-3"><StatusBadge status={student.isActive ? 'active' : 'inactive'} /></td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right space-x-2">
                           <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/students/${student.id}`)}>View</Button>
+                          <Button variant="ghost" size="sm" onClick={() => unenrollStudentMutation.mutate(student.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -155,7 +244,9 @@ export default function BatchDetailPage() {
 
           {activeTab === 'teachers' && (
             (!batch.teachers || batch.teachers.length === 0) ? (
-              <EmptyState title="No teachers assigned" description="No teachers are assigned to this batch yet." />
+              <EmptyState title="No teachers assigned" description="No teachers are assigned to this batch yet." action={
+                <Button size="sm" onClick={() => setShowAddTeacher(true)} className="bg-green-600 hover:bg-green-700"><UserPlus className="h-4 w-4 mr-1.5" /> Assign Teacher</Button>
+              } />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -172,11 +263,14 @@ export default function BatchDetailPage() {
                     {batch.teachers.map((teacher: Teacher) => (
                       <tr key={teacher.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                         <td className="px-4 py-3 font-medium text-slate-900">{teacher.firstName} {teacher.lastName}</td>
-                        <td className="px-4 py-3 text-slate-500">{teacher.employeeId}</td>
+                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">{teacher.employeeId}</td>
                         <td className="px-4 py-3 text-slate-500">{teacher.specialization || '-'}</td>
                         <td className="px-4 py-3"><StatusBadge status={teacher.isActive ? 'active' : 'inactive'} /></td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right space-x-2">
                           <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/teachers/${teacher.id}`)}>View</Button>
+                          <Button variant="ghost" size="sm" onClick={() => unassignTeacherMutation.mutate(teacher.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -210,6 +304,84 @@ export default function BatchDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Enroll Student Dialog */}
+      <Dialog open={showAddStudent} onOpenChange={setShowAddStudent}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GraduationCap className="h-5 w-5 text-blue-600" />
+              <span>Enroll Student into {batch.name}</span>
+            </DialogTitle>
+            <DialogDescription>Select a student from your institute directory to enroll</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label className="text-xs">Select Student *</Label>
+            <Select value={selectedStudentId} onValueChange={setSelectedStudentId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose student..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(allStudents || [])
+                  .filter((st) => !batch.students?.some((bs) => bs.id === st.id))
+                  .map((st) => (
+                    <SelectItem key={st.id} value={st.id}>
+                      {st.firstName} {st.lastName} ({st.studentId})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => selectedStudentId && enrollStudentMutation.mutate(selectedStudentId)}
+              disabled={!selectedStudentId || enrollStudentMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {enrollStudentMutation.isPending ? 'Enrolling...' : 'Enroll Student'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Teacher Dialog */}
+      <Dialog open={showAddTeacher} onOpenChange={setShowAddTeacher}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-green-600" />
+              <span>Assign Teacher to {batch.name}</span>
+            </DialogTitle>
+            <DialogDescription>Select a teacher from your institute faculty roster to assign</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <Label className="text-xs">Select Teacher *</Label>
+            <Select value={selectedTeacherId} onValueChange={setSelectedTeacherId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose teacher..." />
+              </SelectTrigger>
+              <SelectContent>
+                {(allTeachers || [])
+                  .filter((t) => !batch.teachers?.some((bt) => bt.id === t.id))
+                  .map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.firstName} {t.lastName} ({t.employeeId} - {t.specialization || 'General'})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => selectedTeacherId && assignTeacherMutation.mutate(selectedTeacherId)}
+              disabled={!selectedTeacherId || assignTeacherMutation.isPending}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {assignTeacherMutation.isPending ? 'Assigning...' : 'Assign Teacher'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
