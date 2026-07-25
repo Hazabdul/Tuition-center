@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
@@ -34,7 +32,7 @@ interface MarkSheetData {
 export default function StudentMarkSheetPage() {
   const api = useApi();
   const params = useParams();
-  const examId = params.examId as string;
+  const examId = params?.examId as string;
 
   const { data, isLoading } = useQuery<MarkSheetData>({
     queryKey: ['marksheet', examId],
@@ -42,6 +40,7 @@ export default function StudentMarkSheetPage() {
       const res = await api.get<MarkSheetData>(`/api/v1/marks/student/me/marksheet/${examId}`);
       return res.data;
     },
+    enabled: Boolean(examId),
   });
 
   if (isLoading) {

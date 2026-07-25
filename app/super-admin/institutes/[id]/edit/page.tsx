@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
@@ -19,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function EditInstitutePage() {
   const params = useParams();
-  const id = params.id as string;
+  const id = params?.id as string;
   const api = useApi();
   const router = useRouter();
   const { toast } = useToast();
@@ -28,6 +26,7 @@ export default function EditInstitutePage() {
   const { data, isLoading } = useQuery<{ data: Record<string, unknown> }>({
     queryKey: ['institute', id],
     queryFn: async () => api.get(`/api/v1/institutes/${id}`),
+    enabled: Boolean(id),
   });
 
   const [form, setForm] = useState<Record<string, unknown>>({});

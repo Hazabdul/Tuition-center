@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
@@ -72,6 +70,7 @@ export default function InstituteDetailsPage() {
       const res = await api.get<DetailsData>(`/api/v1/institutes/${id}/details`);
       return res.data;
     },
+    enabled: Boolean(id),
   });
 
   const impersonateMutation = useMutation({

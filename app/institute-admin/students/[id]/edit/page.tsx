@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
@@ -65,6 +63,7 @@ function toForm(s: any): StudentFormData {
 
 export default function EditStudentPage() {
   const params = useParams<{ id: string }>();
+  const id = params?.id || '';
   const router = useRouter();
   const api = useApi();
   const { toast } = useToast();
@@ -73,11 +72,12 @@ export default function EditStudentPage() {
   const [form, setForm] = useState<StudentFormData>(EMPTY_FORM);
 
   const { data: student, isLoading } = useQuery<Student, Error>({
-    queryKey: ['student', params.id],
+    queryKey: ['student', id],
     queryFn: async () => {
-      const res = await api.get<Student>(`/api/v1/students/${params.id}`);
+      const res = await api.get<Student>(`/api/v1/students/${id}`);
       return res.data;
     },
+    enabled: Boolean(id),
   });
 
   useEffect(() => {

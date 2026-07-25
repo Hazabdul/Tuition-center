@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
@@ -14,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Pencil, Users, GraduationCap, BookOpen, Calendar, Clock, FileText, Plus, Trash2, UserPlus } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
 import type { Batch, Student, Teacher, Subject } from '@/lib/types';
@@ -28,7 +26,8 @@ interface BatchDetail extends Batch {
 type TabKey = 'students' | 'teachers' | 'subjects';
 
 export default function BatchDetailPage({ params }: { params: { id: string } }) {
-  const id = params.id;
+  const urlParams = useParams<{ id: string }>();
+  const id = urlParams?.id || params?.id || '';
   const router = useRouter();
   const api = useApi();
   const { toast } = useToast();
@@ -48,6 +47,7 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
       const res = await api.get<BatchDetail>(`/api/v1/batches/${id}`);
       return res.data;
     },
+    enabled: Boolean(id),
   });
 
   const { data: allStudents } = useQuery<Student[]>({

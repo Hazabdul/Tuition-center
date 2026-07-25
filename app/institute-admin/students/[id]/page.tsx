@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
@@ -33,6 +31,7 @@ interface StudentDetail extends Student {
 
 export default function StudentDetailPage() {
   const params = useParams<{ id: string }>();
+  const id = params?.id || '';
   const router = useRouter();
   const api = useApi();
   const { toast } = useToast();
@@ -45,11 +44,12 @@ export default function StudentDetailPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
 
   const { data: student, isLoading } = useQuery<StudentDetail, Error>({
-    queryKey: ['student', params.id],
+    queryKey: ['student', id],
     queryFn: async () => {
-      const res = await api.get<StudentDetail>(`/api/v1/students/${params.id}`);
+      const res = await api.get<StudentDetail>(`/api/v1/students/${id}`);
       return res.data;
     },
+    enabled: Boolean(id),
   });
 
   const { data: availableParents } = useQuery<{ data: Parent[] }>({
