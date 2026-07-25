@@ -101,7 +101,7 @@ export default function TeacherAnnouncementsPage() {
                     <SelectValue placeholder="Select Batch Class" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(batchesData?.data || []).map((b) => (
+                    {(batchesData?.data || []).map((b: any) => (
                       <SelectItem key={b.id} value={b.id}>
                         {b.name} ({b.code})
                       </SelectItem>
@@ -179,7 +179,7 @@ export default function TeacherAnnouncementsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(announcements || []).map((item) => (
+                  {(announcements || []).map((item: any) => (
                     <TableRow key={item.id}>
                       <TableCell>
                         <StatusBadge status={item.type || 'info'} />

@@ -56,7 +56,7 @@ export default function TeacherPerformancePage() {
 
   // Build subject performance chart data
   const subjectMap = new Map<string, { total: number; count: number; pass: number }>();
-  (marksData || []).forEach((m) => {
+  (marksData || []).forEach((m: any) => {
     const sub = m.subject?.name || 'Unknown';
     if (!subjectMap.has(sub)) subjectMap.set(sub, { total: 0, count: 0, pass: 0 });
     const entry = subjectMap.get(sub)!;
@@ -72,10 +72,10 @@ export default function TeacherPerformancePage() {
   }));
 
   const overallAvg = marksData?.length
-    ? Math.round(marksData.reduce((sum, m) => sum + (m.percentage || 0), 0) / marksData.length)
+    ? Math.round(marksData.reduce((sum: number, m: any) => sum + (m.percentage || 0), 0) / marksData.length)
     : 0;
   const overallPass = marksData?.length
-    ? Math.round((marksData.filter((m) => m.is_pass).length / marksData.length) * 100)
+    ? Math.round((marksData.filter((m: any) => m.is_pass).length / marksData.length) * 100)
     : 0;
 
   return (
@@ -89,7 +89,7 @@ export default function TeacherPerformancePage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Batches</SelectItem>
-            {(dashboardData?.batches || []).map((tb) => (
+            {(dashboardData?.batches || []).map((tb: any) => (
               <SelectItem key={tb.batch_id} value={tb.batch_id}>{tb.batch.name}</SelectItem>
             ))}
           </SelectContent>

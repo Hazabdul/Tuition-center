@@ -54,7 +54,7 @@ export default function StudentFeePaymentsPage() {
 
   // Totals
   const payments = data?.data || [];
-  const totalPaid = payments.filter((p) => !p.is_reversed).reduce((sum, p) => sum + Number(p.amount_paid), 0);
+  const totalPaid = payments.filter((p: any) => !p.is_reversed).reduce((sum: number, p: any) => sum + Number(p.amount_paid), 0);
 
   return (
     <DashboardLayout navSections={studentNav} role="student">

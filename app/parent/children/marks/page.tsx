@@ -67,7 +67,7 @@ export default function ParentChildMarksPage() {
             <SelectValue placeholder="Select a child" />
           </SelectTrigger>
           <SelectContent>
-            {children.map((c) => (
+            {children.map((c: any) => (
               <SelectItem key={c.id} value={c.id}>{c.first_name} {c.last_name || ''} ({c.student_id})</SelectItem>
             ))}
           </SelectContent>
@@ -79,7 +79,7 @@ export default function ParentChildMarksPage() {
               <SelectValue placeholder="Select exam" />
             </SelectTrigger>
             <SelectContent>
-              {(exams || []).map((e) => (
+              {(exams || []).map((e: any) => (
                 <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
               ))}
             </SelectContent>
@@ -133,7 +133,7 @@ export default function ParentChildMarksPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {markSheetData.marks.map((mark) => (
+                  {markSheetData.marks.map((mark: any) => (
                     <tr key={mark.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3 font-medium text-slate-700">{mark.subject_name}</td>
                       <td className="px-4 py-3 text-center">{mark.max_marks}</td>

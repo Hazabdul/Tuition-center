@@ -43,7 +43,7 @@ export default function ParentChildPerformancePage() {
 
   // Build chart data
   const subjectMap = new Map<string, { total: number; count: number }>();
-  (marksData || []).forEach(m => {
+  (marksData || []).forEach((m: any) => {
     const sub = m.subject?.name || 'Unknown';
     if (!subjectMap.has(sub)) subjectMap.set(sub, { total: 0, count: 0 });
     const entry = subjectMap.get(sub)!;
@@ -53,8 +53,8 @@ export default function ParentChildPerformancePage() {
   const chartData = Array.from(subjectMap.entries()).map(([name, s]) => ({ name, avg: Math.round(s.total / (s.count || 1)) }));
 
   const allMarks = marksData || [];
-  const overallAvg = allMarks.length ? Math.round(allMarks.reduce((s, m) => s + (m.percentage || 0), 0) / allMarks.length) : 0;
-  const passRate = allMarks.length ? Math.round((allMarks.filter(m => m.is_pass).length / allMarks.length) * 100) : 0;
+  const overallAvg = allMarks.length ? Math.round(allMarks.reduce((s: number, m: any) => s + (m.percentage || 0), 0) / allMarks.length) : 0;
+  const passRate = allMarks.length ? Math.round((allMarks.filter((m: any) => m.is_pass).length / allMarks.length) * 100) : 0;
 
   return (
     <DashboardLayout navSections={parentNav} role="parent">
@@ -66,7 +66,7 @@ export default function ParentChildPerformancePage() {
             <SelectValue placeholder="Select a child" />
           </SelectTrigger>
           <SelectContent>
-            {children.map((c) => (
+            {children.map((c: any) => (
               <SelectItem key={c.id} value={c.id}>{c.first_name} {c.last_name || ''} ({c.student_id})</SelectItem>
             ))}
           </SelectContent>

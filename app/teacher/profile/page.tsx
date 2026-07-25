@@ -104,7 +104,7 @@ export default function TeacherProfilePage() {
                 <p className="text-sm text-slate-500">No batches assigned</p>
               ) : (
                 <div className="space-y-2">
-                  {profile.batches.map((tb, i) => (
+                  {profile.batches.map((tb: any, i: number) => (
                     <div key={i} className="flex items-center justify-between">
                       <span className="text-sm text-slate-700">{tb.batch.name}</span>
                       <Badge variant="outline" className="text-xs">{tb.batch.code}</Badge>
@@ -127,7 +127,7 @@ export default function TeacherProfilePage() {
                 <p className="text-sm text-slate-500">No subjects assigned</p>
               ) : (
                 <div className="space-y-2">
-                  {profile.subjects.map((ts, i) => (
+                  {profile.subjects.map((ts: any, i: number) => (
                     <div key={i} className="flex items-center justify-between">
                       <span className="text-sm text-slate-700">{ts.subject.name}</span>
                       <Badge variant="outline" className="text-xs">{ts.subject.code}</Badge>

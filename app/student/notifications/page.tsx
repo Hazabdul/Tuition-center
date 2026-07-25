@@ -47,7 +47,7 @@ export default function StudentNotificationsPage() {
     },
   });
 
-  const unreadCount = (data || []).filter((n) => !n.is_read).length;
+  const unreadCount = (data || []).filter((n: any) => !n.is_read).length;
 
   return (
     <DashboardLayout navSections={studentNav} role="student">
@@ -71,7 +71,7 @@ export default function StudentNotificationsPage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {data.map((notification) => (
+          {data.map((notification: any) => (
             <Card key={notification.id} className={`border-slate-200 shadow-sm ${!notification.is_read ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
               <CardContent className="p-4 flex items-start gap-4">
                 <div className="flex-shrink-0 mt-0.5">{getIcon(notification.type)}</div>

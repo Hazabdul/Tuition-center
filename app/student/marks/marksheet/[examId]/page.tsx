@@ -120,7 +120,7 @@ export default function StudentMarkSheetPage() {
             </tr>
           </thead>
           <tbody>
-            {data.marks.map((mark, i) => (
+            {data.marks.map((mark: any, i: number) => (
               <tr key={mark.id} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                 <td className="border border-slate-300 px-3 py-2 text-sm font-medium">{mark.subject_name}</td>
                 <td className="border border-slate-300 px-3 py-2 text-sm text-center">{mark.max_marks}</td>

@@ -138,7 +138,7 @@ export default function StudentPerformancePage() {
                 <p className="text-sm text-slate-500 text-center py-8">No published results available</p>
               ) : (
                 <div className="space-y-3">
-                  {data.examResults.map((exam, i) => (
+                  {data.examResults.map((exam: any, i: number) => (
                     <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                       <div>
                         <p className="text-sm font-medium text-slate-900">{exam.examName}</p>

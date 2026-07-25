@@ -164,7 +164,7 @@ export default function AnnouncementsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(announcements || []).map((item) => (
+                  {(announcements || []).map((item: any) => (
                     <TableRow key={item.id}>
                       <TableCell>
                         <StatusBadge status={item.type || 'info'} />

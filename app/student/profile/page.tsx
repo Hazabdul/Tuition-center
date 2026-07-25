@@ -127,7 +127,7 @@ export default function StudentProfilePage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {profile.batches.map((sb, i) => (
+                  {profile.batches.map((sb: any, i: number) => (
                     <div key={i} className="flex items-center justify-between">
                       <span className="text-sm text-slate-700">{sb.batch.name}</span>
                       <Badge variant="outline" className="text-xs">{sb.batch.code}</Badge>

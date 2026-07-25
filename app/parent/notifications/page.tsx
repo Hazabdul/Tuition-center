@@ -34,7 +34,7 @@ export default function ParentNotificationsPage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['parent-notifications'] }); toast({ title: 'Marked as read' }); },
   });
 
-  const unreadCount = (data || []).filter(n => !n.is_read).length;
+  const unreadCount = (data || []).filter((n: any) => !n.is_read).length;
 
   return (
     <DashboardLayout navSections={parentNav} role="parent">
@@ -58,7 +58,7 @@ export default function ParentNotificationsPage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {data.map((n) => (
+          {data.map((n: any) => (
             <Card key={n.id} className={`border-slate-200 shadow-sm ${!n.is_read ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
               <CardContent className="p-4 flex items-start gap-4">
                 <div className="flex-shrink-0 mt-0.5">{getIcon(n.type)}</div>

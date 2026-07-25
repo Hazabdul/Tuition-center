@@ -78,7 +78,7 @@ export default function StudentMarksPage() {
             <SelectValue placeholder="Select an exam to view marks" />
           </SelectTrigger>
           <SelectContent>
-            {(exams || []).map((exam) => (
+            {(exams || []).map((exam: any) => (
               <SelectItem key={exam.id} value={exam.id}>{exam.name}</SelectItem>
             ))}
           </SelectContent>
@@ -137,7 +137,7 @@ export default function StudentMarksPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {marksData.marks.map((mark) => (
+                  {marksData.marks.map((mark: any) => (
                     <tr key={mark.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3 font-medium text-slate-700">{mark.subject_name}</td>
                       <td className="px-4 py-3 text-center text-slate-600">{mark.max_marks}</td>

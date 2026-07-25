@@ -243,7 +243,7 @@ export default function InstituteDetailsPage({ params }: { params: { id: string 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.teachers || []).map((t) => (
+                  {(data?.teachers || []).map((t: any) => (
                     <TableRow key={t.id}>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{t.employee_id}</TableCell>
                       <TableCell className="font-medium text-slate-900">{t.first_name} {t.last_name}</TableCell>
@@ -276,7 +276,7 @@ export default function InstituteDetailsPage({ params }: { params: { id: string 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.students || []).map((st) => (
+                  {(data?.students || []).map((st: any) => (
                     <TableRow key={st.id}>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{st.student_id}</TableCell>
                       <TableCell className="font-medium text-slate-900">{st.first_name} {st.last_name}</TableCell>
@@ -296,7 +296,7 @@ export default function InstituteDetailsPage({ params }: { params: { id: string 
         {/* TAB 4: BATCHES & SUBJECTS */}
         <TabsContent value="batches" className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {(data?.batches || []).map((b) => (
+            {(data?.batches || []).map((b: any) => (
               <Card key={b.id} className="border-slate-200 shadow-sm">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-bold text-slate-900">{b.name}</CardTitle>
@@ -328,7 +328,7 @@ export default function InstituteDetailsPage({ params }: { params: { id: string 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.subjects || []).map((sub) => (
+                  {(data?.subjects || []).map((sub: any) => (
                     <TableRow key={sub.id}>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{sub.code}</TableCell>
                       <TableCell className="font-medium text-slate-900">{sub.name}</TableCell>
@@ -361,7 +361,7 @@ export default function InstituteDetailsPage({ params }: { params: { id: string 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.exams || []).map((ex) => (
+                  {(data?.exams || []).map((ex: any) => (
                     <TableRow key={ex.id}>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{ex.code}</TableCell>
                       <TableCell className="font-medium text-slate-900">{ex.name}</TableCell>
@@ -400,7 +400,7 @@ export default function InstituteDetailsPage({ params }: { params: { id: string 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.feeSummary.recentPayments || []).map((pay) => (
+                  {(data?.feeSummary.recentPayments || []).map((pay: any) => (
                     <TableRow key={pay.id}>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{pay.receipt_number}</TableCell>
                       <TableCell className="font-bold text-green-700">₹{pay.amount_paid.toLocaleString()}</TableCell>

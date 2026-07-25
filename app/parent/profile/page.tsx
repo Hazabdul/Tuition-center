@@ -91,7 +91,7 @@ export default function ParentProfilePage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {profile.children.map((c) => (
+                  {profile.children.map((c: any) => (
                     <div key={c.student.id} className="p-3 bg-slate-50 rounded-lg flex items-center justify-between">
                       <div>
                         <p className="font-medium text-slate-900 text-sm">{c.student.first_name} {c.student.last_name}</p>

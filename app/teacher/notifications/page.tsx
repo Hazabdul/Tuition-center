@@ -47,7 +47,7 @@ export default function TeacherNotificationsPage() {
     },
   });
 
-  const unreadCount = (data || []).filter((n) => !n.is_read).length;
+  const unreadCount = (data || []).filter((n: any) => !n.is_read).length;
 
   return (
     <DashboardLayout navSections={teacherNav} role="teacher">
@@ -73,7 +73,7 @@ export default function TeacherNotificationsPage() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {data.map((notification) => (
+          {data.map((notification: any) => (
             <Card
               key={notification.id}
               className={`border-slate-200 shadow-sm transition-colors ${!notification.is_read ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}

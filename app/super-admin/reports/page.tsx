@@ -172,7 +172,7 @@ export default function SuperAdminReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data?.transactions || []).map((t) => (
+              {(data?.transactions || []).map((t: any) => (
                 <TableRow key={t.id}>
                   <TableCell className="font-mono text-xs font-medium text-slate-700">{t.receiptNumber}</TableCell>
                   <TableCell>

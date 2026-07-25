@@ -58,7 +58,7 @@ export default function StudentBatchPage() {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {data.batches.map((sb) => (
+          {data.batches.map((sb: any) => (
             <Card key={sb.batch_id} className="border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">

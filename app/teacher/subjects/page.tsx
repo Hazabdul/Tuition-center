@@ -61,7 +61,7 @@ export default function TeacherSubjectsPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {data.subjects.map((ts) => (
+          {data.subjects.map((ts: any) => (
             <Card key={ts.subject_id} className="border-slate-200 shadow-sm hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
