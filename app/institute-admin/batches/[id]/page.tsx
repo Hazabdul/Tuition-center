@@ -222,20 +222,25 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
                     </tr>
                   </thead>
                   <tbody>
-                    {batch.students.map((student: Student) => (
-                      <tr key={student.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-slate-900">{student.firstName} {student.lastName}</td>
-                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">{student.studentId}</td>
-                        <td className="px-4 py-3 text-slate-500">{student.email || student.phone || '-'}</td>
-                        <td className="px-4 py-3"><StatusBadge status={student.isActive ? 'active' : 'inactive'} /></td>
-                        <td className="px-4 py-3 text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/students/${student.id}`)}>View</Button>
-                          <Button variant="ghost" size="sm" onClick={() => unenrollStudentMutation.mutate(student.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    {batch.students.map((student: any) => {
+                      const name = `${student.firstName || student.first_name || ''} ${student.lastName || student.last_name || ''}`.trim() || 'Student';
+                      const code = student.studentId || student.student_id || '-';
+                      const active = student.isActive ?? student.is_active ?? true;
+                      return (
+                        <tr key={student.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-900">{name}</td>
+                          <td className="px-4 py-3 text-slate-500 font-mono text-xs">{code}</td>
+                          <td className="px-4 py-3 text-slate-500">{student.email || student.phone || '-'}</td>
+                          <td className="px-4 py-3"><StatusBadge status={active ? 'active' : 'inactive'} /></td>
+                          <td className="px-4 py-3 text-right space-x-2">
+                            <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/students/${student.id}`)}>View</Button>
+                            <Button variant="ghost" size="sm" onClick={() => unenrollStudentMutation.mutate(student.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -260,20 +265,25 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
                     </tr>
                   </thead>
                   <tbody>
-                    {batch.teachers.map((teacher: Teacher) => (
-                      <tr key={teacher.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-slate-900">{teacher.firstName} {teacher.lastName}</td>
-                        <td className="px-4 py-3 text-slate-500 font-mono text-xs">{teacher.employeeId}</td>
-                        <td className="px-4 py-3 text-slate-500">{teacher.specialization || '-'}</td>
-                        <td className="px-4 py-3"><StatusBadge status={teacher.isActive ? 'active' : 'inactive'} /></td>
-                        <td className="px-4 py-3 text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/teachers/${teacher.id}`)}>View</Button>
-                          <Button variant="ghost" size="sm" onClick={() => unassignTeacherMutation.mutate(teacher.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    {batch.teachers.map((teacher: any) => {
+                      const name = `${teacher.firstName || teacher.first_name || ''} ${teacher.lastName || teacher.last_name || ''}`.trim() || 'Teacher';
+                      const code = teacher.employeeId || teacher.employee_id || '-';
+                      const active = teacher.isActive ?? teacher.is_active ?? true;
+                      return (
+                        <tr key={teacher.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-900">{name}</td>
+                          <td className="px-4 py-3 text-slate-500 font-mono text-xs">{code}</td>
+                          <td className="px-4 py-3 text-slate-500">{teacher.specialization || '-'}</td>
+                          <td className="px-4 py-3"><StatusBadge status={active ? 'active' : 'inactive'} /></td>
+                          <td className="px-4 py-3 text-right space-x-2">
+                            <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/teachers/${teacher.id}`)}>View</Button>
+                            <Button variant="ghost" size="sm" onClick={() => unassignTeacherMutation.mutate(teacher.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

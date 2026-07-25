@@ -4,7 +4,7 @@ import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from 
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
     const user = await getUserFromRequest(request);
@@ -12,7 +12,7 @@ export async function POST(
       return apiError('Unauthorized: Only Institute Admins can assign teachers to batches', 403);
     }
 
-    const { id: batchId } = await params;
+    const batchId = params.id;
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
@@ -34,11 +34,16 @@ export async function POST(
     }
 
     // Insert assignment
-    await supabase.from('teacher_batch').insert({
+    const { error: insertErr } = await supabase.from('teacher_batch').insert({
       institute_id: instituteId,
       batch_id: batchId,
       teacher_id: teacherId,
     });
+
+    if (insertErr) {
+      console.error('Insert teacher assignment error:', insertErr);
+      return apiError(insertErr.message, 400);
+    }
 
     await logActivity({
       instituteId,
@@ -58,7 +63,7 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
     const user = await getUserFromRequest(request);
@@ -66,7 +71,7 @@ export async function DELETE(
       return apiError('Unauthorized', 403);
     }
 
-    const { id: batchId } = await params;
+    const batchId = params.id;
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
 

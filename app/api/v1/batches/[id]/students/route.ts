@@ -4,7 +4,7 @@ import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from 
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
     const user = await getUserFromRequest(request);
@@ -12,7 +12,7 @@ export async function POST(
       return apiError('Unauthorized: Only Institute Admins can enroll students into batches', 403);
     }
 
-    const { id: batchId } = await params;
+    const batchId = params.id;
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
@@ -34,12 +34,17 @@ export async function POST(
     }
 
     // Insert enrollment
-    await supabase.from('student_batch').insert({
+    const { error: insertErr } = await supabase.from('student_batch').insert({
       institute_id: instituteId,
       batch_id: batchId,
       student_id: studentId,
       enrollment_date: new Date().toISOString().split('T')[0],
     });
+
+    if (insertErr) {
+      console.error('Insert enrollment error:', insertErr);
+      return apiError(insertErr.message, 400);
+    }
 
     await logActivity({
       instituteId,
@@ -59,7 +64,7 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
     const user = await getUserFromRequest(request);
@@ -67,7 +72,7 @@ export async function DELETE(
       return apiError('Unauthorized', 403);
     }
 
-    const { id: batchId } = await params;
+    const batchId = params.id;
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get('studentId');
 
