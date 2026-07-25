@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const { data: teachers } = await supabase
       .from('teacher_batch')
-      .select('teacher:teachers(id, employee_id, first_name, last_name, email, phone, is_active)')
+      .select('teacher:teachers(id, employee_id, first_name, last_name, email, phone, specialization, is_active)')
       .eq('batch_id', params.id);
 
     const { data: subjects } = await supabase
