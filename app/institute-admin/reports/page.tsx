@@ -75,7 +75,7 @@ export default function InstituteAdminReportsPage() {
               <p className="text-sm text-slate-500 py-6 text-center">No published exam scores available</p>
             ) : (
               <div className="space-y-3">
-                {(analytics?.rankers || []).map((r) => (
+                {(analytics?.rankers || []).map((r: any) => (
                   <div key={r.rank} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className={`flex h-8 w-8 items-center justify-center rounded-full font-bold text-xs ${

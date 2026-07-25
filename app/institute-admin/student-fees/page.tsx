@@ -235,9 +235,9 @@ export default function StudentFeesPage() {
 
   const fees = data?.data || [];
   const totalAssigned = fees.length;
-  const totalCollected = fees.reduce((acc, f) => acc + (f.paid_amount || 0), 0);
-  const totalOutstanding = fees.reduce((acc, f) => acc + (f.balance_amount || 0), 0);
-  const overdueCount = fees.filter((f) => f.status === 'overdue').length;
+  const totalCollected = fees.reduce((acc: number, f: any) => acc + (f.paid_amount || 0), 0);
+  const totalOutstanding = fees.reduce((acc: number, f: any) => acc + (f.balance_amount || 0), 0);
+  const overdueCount = fees.filter((f: any) => f.status === 'overdue').length;
 
   return (
     <DashboardLayout navSections={instituteAdminNav} role="institute_admin">
@@ -373,7 +373,7 @@ export default function StudentFeesPage() {
                 <SelectValue placeholder="Select student" />
               </SelectTrigger>
               <SelectContent>
-                {(studentsData?.data || []).map((s) => (
+                {(studentsData?.data || []).map((s: any) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.first_name} {s.last_name || ''} ({s.student_id})
                   </SelectItem>
@@ -389,7 +389,7 @@ export default function StudentFeesPage() {
                 <SelectValue placeholder="Select fee category" />
               </SelectTrigger>
               <SelectContent>
-                {(categoriesData?.data || []).map((c) => (
+                {(categoriesData?.data || []).map((c: any) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name} ({c.code})
                   </SelectItem>

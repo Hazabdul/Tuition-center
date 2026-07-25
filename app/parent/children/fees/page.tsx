@@ -43,9 +43,9 @@ export default function ParentChildFeesPage() {
     },
   });
 
-  const totalOwed = (feesData || []).reduce((s, f) => s + Number(f.total_amount), 0);
-  const totalPaid = (feesData || []).reduce((s, f) => s + Number(f.paid_amount), 0);
-  const totalBalance = (feesData || []).reduce((s, f) => s + Number(f.balance_amount), 0);
+  const totalOwed = (feesData || []).reduce((s: number, f: any) => s + Number(f.total_amount), 0);
+  const totalPaid = (feesData || []).reduce((s: number, f: any) => s + Number(f.paid_amount), 0);
+  const totalBalance = (feesData || []).reduce((s: number, f: any) => s + Number(f.balance_amount), 0);
 
   return (
     <DashboardLayout navSections={parentNav} role="parent">
@@ -57,7 +57,7 @@ export default function ParentChildFeesPage() {
             <SelectValue placeholder="Select a child" />
           </SelectTrigger>
           <SelectContent>
-            {children.map((c) => (
+            {children.map((c: any) => (
               <SelectItem key={c.id} value={c.id}>{c.first_name} {c.last_name || ''} ({c.student_id})</SelectItem>
             ))}
           </SelectContent>
@@ -97,7 +97,7 @@ export default function ParentChildFeesPage() {
           </div>
 
           <div className="space-y-3">
-            {(feesData || []).map((fee) => (
+            {(feesData || []).map((fee: any) => (
               <Card key={fee.id} className="border-slate-200 shadow-sm">
                 <CardContent className="p-4 flex items-center justify-between">
                   <div>

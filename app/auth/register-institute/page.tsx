@@ -120,7 +120,7 @@ export default function RegisterInstitutePage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {(plans || []).map((plan) => {
+                {(plans || []).map((plan: any) => {
                   const isSelected = selectedPlan?.id === plan.id;
                   return (
                     <Card
