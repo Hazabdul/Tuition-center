@@ -6,7 +6,6 @@ import {
   signAccessToken,
   signRefreshToken,
   createRefreshTokenRecord,
-  verifyAccessToken,
   mapDbUser,
   apiSuccess,
   apiError,
@@ -24,13 +23,65 @@ export async function POST(request: NextRequest) {
       return apiError('Identifier and password are required', 400);
     }
 
-    // Find institute by code
+    // 1. Check Super Admin authentication directly
+    if (
+      !instituteCode ||
+      instituteCode.toUpperCase() === 'SUPER' ||
+      instituteCode.toUpperCase() === 'GLOBAL' ||
+      identifier === 'superadmin' ||
+      identifier === 'superadmin@edumanage.com'
+    ) {
+      const { data: superUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'super_admin')
+        .eq('is_active', true)
+        .is('deleted_at', null)
+        .or(`email.eq.${identifier},username.eq.${identifier}`)
+        .maybeSingle();
+
+      if (superUser && verifyPassword(password, superUser.password_hash)) {
+        const user = mapDbUser(superUser);
+        const payload = { userId: user.id, role: user.role, instituteId: user.instituteId };
+        const accessToken = signAccessToken(payload);
+        const refreshToken = signRefreshToken(payload);
+        await createRefreshTokenRecord(user.id, refreshToken);
+        await supabase.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', user.id);
+
+        const response = apiSuccess(
+          {
+            user,
+            accessToken,
+            refreshToken,
+            redirectPath: ROLE_DASHBOARD_PATHS.super_admin,
+          },
+          'Super Admin login successful'
+        );
+
+        response.headers.append(
+          'Set-Cookie',
+          `access_token=${accessToken}; Path=/; Max-Age=900; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
+        );
+        response.headers.append(
+          'Set-Cookie',
+          `refresh_token=${refreshToken}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
+        );
+
+        return response;
+      }
+    }
+
+    // 2. Tenant Institute authentication
+    if (!instituteCode) {
+      return apiError('Institute code is required for institute users', 400);
+    }
+
     const { data: institute } = await supabase
       .from('institutes')
       .select('id, status, deleted_at')
       .eq('code', instituteCode)
       .is('deleted_at', null)
-      .single();
+      .maybeSingle();
 
     if (!institute) {
       return apiError('Invalid institute code', 401);
@@ -50,7 +101,7 @@ export async function POST(request: NextRequest) {
       .eq('institute_id', institute.id)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (sub) {
       if (sub.status === 'suspended' || sub.status === 'cancelled') {
@@ -61,19 +112,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Find user by identifier (email, username, phone, or student_id) within institute
-    let userQuery = supabase
+    // Find user within institute
+    const { data: users } = await supabase
       .from('users')
       .select('*')
       .eq('institute_id', institute.id)
       .eq('is_active', true)
       .is('deleted_at', null)
-      .neq('role', 'super_admin');
-
-    // Try matching by email, username, phone, or student_id
-    const { data: users } = await userQuery.or(
-      `email.eq.${identifier},username.eq.${identifier},phone.eq.${identifier},student_id.eq.${identifier}`
-    );
+      .or(`email.eq.${identifier},username.eq.${identifier},phone.eq.${identifier},student_id.eq.${identifier}`);
 
     if (!users || users.length === 0) {
       return apiError('Invalid credentials', 401);
@@ -91,7 +137,6 @@ export async function POST(request: NextRequest) {
     const refreshToken = signRefreshToken(payload);
     await createRefreshTokenRecord(user.id, refreshToken);
 
-    // Update last login
     await supabase.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', user.id);
 
     await logActivity({
@@ -113,7 +158,6 @@ export async function POST(request: NextRequest) {
       'Login successful'
     );
 
-    // Set tokens as cookies
     response.headers.append(
       'Set-Cookie',
       `access_token=${accessToken}; Path=/; Max-Age=900; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
