@@ -25,8 +25,8 @@ interface BatchDetail extends Batch {
 
 type TabKey = 'students' | 'teachers' | 'subjects';
 
-export default function BatchDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function BatchDetailPage({ params }: { params: { id: string } }) {
+  const id = params.id;
   const router = useRouter();
   const api = useApi();
   const { toast } = useToast();

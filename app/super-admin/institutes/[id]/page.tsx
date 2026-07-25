@@ -54,8 +54,8 @@ interface DetailsData {
   };
 }
 
-export default function InstituteDetailsPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function InstituteDetailsPage({ params }: { params: { id: string } }) {
+  const id = params.id;
   const api = useApi();
   const router = useRouter();
   const { toast } = useToast();
