@@ -41,9 +41,9 @@ export default function SuperAdminLoginPage() {
   }
 
   function fillDemo() {
-    setEmail('superadmin@example.com');
-    setPassword('Password@123');
-    toast.info('Filled Super Admin demo credentials');
+    setEmail('superadmin@edumanage.com');
+    setPassword('SuperAdmin@123');
+    toast.info('Filled Super Admin credentials');
   }
 
   return (
@@ -66,8 +66,8 @@ export default function SuperAdminLoginPage() {
             {/* Quick Fill Button */}
             <div className="bg-slate-900/60 border border-slate-700 rounded-lg p-3 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold text-slate-200">⚡ Demo Super Admin</p>
-                <p className="text-[11px] text-slate-400">superadmin@example.com</p>
+                <p className="text-xs font-semibold text-slate-200">⚡ Super Admin Credentials</p>
+                <p className="text-[11px] text-slate-400">superadmin@edumanage.com</p>
               </div>
               <Button
                 type="button"
@@ -82,13 +82,13 @@ export default function SuperAdminLoginPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-slate-200 text-xs font-medium">Email</Label>
+                <Label htmlFor="email" className="text-slate-200 text-xs font-medium">Email or Username</Label>
                 <Input
                   id="email"
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="superadmin@example.com"
+                  placeholder="superadmin@edumanage.com or superadmin"
                   required
                   className="bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500"
                 />

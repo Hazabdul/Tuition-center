@@ -77,10 +77,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       const grade = calculateGrade(percentage);
       const isPass = obtainedMarks >= passingMarks;
 
-      const existing = existingMap.get(studentId);
+      const existing = existingMap.get(studentId) as any;
       if (existing) {
         updates.push({
-          id: existing.id,
+          id: existing.id || existing._id,
           data: {
             max_marks: maxMarks,
             obtained_marks: obtainedMarks,

@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,13 +12,11 @@ export async function GET(request: NextRequest) {
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
-    const { data: institute, error } = await supabase
-      .from('institutes')
-      .select('id, name, code, email, phone, alt_phone, address, city, state_region, country, postal_code, contact_person_name, notes')
-      .eq('id', instituteId)
-      .single();
+    await dbConnect();
 
-    if (error || !institute) return apiError('Institute not found', 404);
+    const institute = await InstituteDoc.findById(instituteId).lean();
+
+    if (!institute) return apiError('Institute not found', 404);
 
     let branding = {
       logoUrl: '',
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       primaryColor: '#2563eb',
       receiptHeader: institute.name,
       receiptFooter: 'Thank you for your payment. This is a computer-generated receipt.',
-      principalName: institute.contact_person_name || 'Principal',
+      principalName: institute.contactPersonName || 'Principal',
     };
 
     if (institute.notes) {
@@ -34,7 +34,25 @@ export async function GET(request: NextRequest) {
       } catch {}
     }
 
-    return apiSuccess({ ...institute, branding }, 'Institute settings fetched');
+    return apiSuccess(
+      {
+        id: institute._id.toString(),
+        name: institute.name,
+        code: institute.code,
+        email: institute.email,
+        phone: institute.phone,
+        alt_phone: institute.altPhone,
+        address: institute.address,
+        city: institute.city,
+        state_region: institute.stateRegion,
+        country: institute.country,
+        postal_code: institute.postalCode,
+        contact_person_name: institute.contactPersonName,
+        notes: institute.notes,
+        branding,
+      },
+      'Institute settings fetched'
+    );
   } catch (error) {
     console.error('Fetch institute settings error:', error);
     return apiError('Failed to fetch settings', 500);
@@ -51,18 +69,19 @@ export async function PATCH(request: NextRequest) {
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
+    await dbConnect();
+
     const body = await request.json();
     const { name, email, phone, address, city, stateRegion, postalCode, branding } = body;
 
-    const { data: existing } = await supabase
-      .from('institutes')
-      .select('notes')
-      .eq('id', instituteId)
-      .single();
+    const existing = await InstituteDoc.findById(instituteId).lean();
+    if (!existing) return apiError('Institute not found', 404);
 
     let existingNotesObj: Record<string, unknown> = {};
-    if (existing?.notes) {
-      try { existingNotesObj = JSON.parse(existing.notes); } catch {}
+    if (existing.notes) {
+      try {
+        existingNotesObj = JSON.parse(existing.notes);
+      } catch {}
     }
 
     const updatedNotesObj = {
@@ -70,24 +89,20 @@ export async function PATCH(request: NextRequest) {
       branding: branding || existingNotesObj.branding || {},
     };
 
-    const { data: institute, error } = await supabase
-      .from('institutes')
-      .update({
+    const updated = await InstituteDoc.findByIdAndUpdate(
+      instituteId,
+      {
         name,
         email,
         phone,
         address,
         city,
-        state_region: stateRegion,
-        postal_code: postalCode,
+        stateRegion,
+        postalCode,
         notes: JSON.stringify(updatedNotesObj),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', instituteId)
-      .select()
-      .single();
-
-    if (error) return apiError(error.message, 400);
+      },
+      { new: true }
+    ).lean();
 
     await logActivity({
       instituteId,
@@ -99,7 +114,7 @@ export async function PATCH(request: NextRequest) {
       request,
     });
 
-    return apiSuccess(institute, 'Institute branding and document settings updated');
+    return apiSuccess(updated, 'Institute branding and document settings updated');
   } catch (error) {
     console.error('Update institute settings error:', error);
     return apiError('Failed to update settings', 500);

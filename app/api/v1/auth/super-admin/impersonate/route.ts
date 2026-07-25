@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import {
-  supabase,
   signAccessToken,
   signRefreshToken,
   createRefreshTokenRecord,
@@ -10,7 +9,11 @@ import {
   apiError,
   getUserFromRequest,
   logActivity,
+  JwtPayload,
 } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
+import UserDoc from '@/models/User';
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,33 +30,28 @@ export async function POST(request: NextRequest) {
       return apiError('Institute ID is required', 400);
     }
 
+    await dbConnect();
+
     // Check institute exists
-    const { data: institute } = await supabase
-      .from('institutes')
-      .select('id, name, code, status')
-      .eq('id', instituteId)
-      .single();
+    const institute = await InstituteDoc.findOne({ _id: instituteId, deletedAt: null }).lean();
 
     if (!institute) {
-      return apiError('Institute not found', 444);
+      return apiError('Institute not found', 404);
     }
 
     // Find primary institute admin user
-    const { data: instAdminDb } = await supabase
-      .from('users')
-      .select('*')
-      .eq('institute_id', instituteId)
-      .eq('role', 'institute_admin')
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .limit(1)
-      .single();
+    const instAdminDb = await UserDoc.findOne({
+      instituteId: institute._id,
+      role: 'institute_admin',
+      isActive: true,
+      deletedAt: null,
+    }).lean();
 
     if (!instAdminDb) {
       return apiError('No active Institute Admin found for this institute', 404);
     }
 
-    const instAdminUser = mapDbUser(instAdminDb);
+    const instAdminUser = mapDbUser(instAdminDb as unknown as Record<string, unknown>);
 
     const payload = {
       userId: instAdminUser.id,
@@ -64,16 +62,16 @@ export async function POST(request: NextRequest) {
       originalRole: currentUser.role,
     };
 
-    const accessToken = signAccessToken(payload as any);
-    const refreshToken = signRefreshToken(payload as any);
+    const accessToken = signAccessToken(payload as unknown as JwtPayload);
+    const refreshToken = signRefreshToken(payload as unknown as JwtPayload);
     await createRefreshTokenRecord(instAdminUser.id, refreshToken);
 
     await logActivity({
-      instituteId: institute.id,
+      instituteId: institute._id.toString(),
       userId: currentUser.id,
       action: 'super_admin.impersonate',
       entityType: 'institute',
-      entityId: institute.id,
+      entityId: institute._id.toString(),
       newValues: { impersonatedUserId: instAdminUser.id, instituteName: institute.name },
       request,
     });
@@ -84,26 +82,26 @@ export async function POST(request: NextRequest) {
         accessToken,
         refreshToken,
         instituteName: institute.name,
-        redirectPath: '/institute-admin/dashboard',
+        redirectPath: '/admin',
       },
       `Switched session to ${institute.name}`
     );
 
     response.headers.append(
       'Set-Cookie',
-      `access_token=${accessToken}; Path=/; Max-Age=900; SameSite=Lax`
+      `access_token=${accessToken}; Path=/; Max-Age=900; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
     );
     response.headers.append(
       'Set-Cookie',
-      `refresh_token=${refreshToken}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`
+      `refresh_token=${refreshToken}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
     );
     response.headers.append(
       'Set-Cookie',
-      `is_impersonating=true; Path=/; Max-Age=3600; SameSite=Lax`
+      `is_impersonating=true; Path=/; Max-Age=3600; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
     );
     response.headers.append(
       'Set-Cookie',
-      `impersonated_institute_name=${encodeURIComponent(institute.name)}; Path=/; Max-Age=3600; SameSite=Lax`
+      `impersonated_institute_name=${encodeURIComponent(institute.name)}; Path=/; Max-Age=3600; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
     );
 
     return response;

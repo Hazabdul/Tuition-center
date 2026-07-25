@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import {
-  supabase,
   verifyPassword,
   signAccessToken,
   signRefreshToken,
@@ -11,6 +10,8 @@ import {
   apiError,
   logActivity,
 } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import UserDoc from '@/models/User';
 import { ROLE_DASHBOARD_PATHS } from '@/lib/constants';
 
 export async function POST(request: NextRequest) {
@@ -19,34 +20,34 @@ export async function POST(request: NextRequest) {
     const { email, password } = body;
 
     if (!email || !password) {
-      return apiError('Email and password are required', 400);
+      return apiError('Email or username and password are required', 400);
     }
 
-    const { data: dbUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .eq('role', 'super_admin')
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .single();
+    await dbConnect();
+
+    const dbUser = await UserDoc.findOne({
+      role: 'super_admin',
+      isActive: true,
+      deletedAt: null,
+      $or: [{ email: email.toLowerCase() }, { username: email }],
+    }).lean();
 
     if (!dbUser) {
       return apiError('Invalid credentials', 401);
     }
 
-    if (!verifyPassword(password, dbUser.password_hash)) {
+    if (!verifyPassword(password, dbUser.passwordHash)) {
       return apiError('Invalid credentials', 401);
     }
 
-    const user = mapDbUser(dbUser);
+    const user = mapDbUser(dbUser as unknown as Record<string, unknown>);
     const payload = { userId: user.id, role: user.role, instituteId: user.instituteId };
 
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
     await createRefreshTokenRecord(user.id, refreshToken);
 
-    await supabase.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', user.id);
+    await UserDoc.findByIdAndUpdate(user.id, { lastLoginAt: new Date() });
 
     await logActivity({
       instituteId: null,

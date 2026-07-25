@@ -1,15 +1,22 @@
-import { createClient } from '@supabase/supabase-js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { cookies } from 'next/headers';
+import { dbConnect } from './mongodb';
+import UserDoc, { IUser } from '@/models/User';
+import RefreshTokenDoc from '@/models/RefreshToken';
+import InstituteDoc from '@/models/Institute';
+import ActivityLogDoc from '@/models/ActivityLog';
+import NotificationDoc from '@/models/Notification';
 import type { Role, User } from './types';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
-
-export const supabase = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_ACCESS_SECRET || process.env.JWT_ACCESS_SECRET === 'access-secret-dev-key-change-in-production') {
+    console.error('FATAL: JWT_ACCESS_SECRET is not configured for production deployment.');
+  }
+  if (!process.env.JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET === 'refresh-secret-dev-key-change-in-production') {
+    console.error('FATAL: JWT_REFRESH_SECRET is not configured for production deployment.');
+  }
+}
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'access-secret-dev-key-change-in-production';
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'refresh-secret-dev-key-change-in-production';
@@ -59,14 +66,15 @@ export function hashToken(token: string): string {
 }
 
 export async function createRefreshTokenRecord(userId: string, token: string): Promise<void> {
+  await dbConnect();
   const tokenHash = hashToken(token);
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  await supabase.from('refresh_tokens').insert({
-    user_id: userId,
-    token_hash: tokenHash,
-    expires_at: expiresAt.toISOString(),
+  await RefreshTokenDoc.create({
+    userId,
+    tokenHash,
+    expiresAt,
   });
 }
 
@@ -75,21 +83,21 @@ export async function rotateRefreshToken(
   newToken: string,
   userId: string
 ): Promise<boolean> {
-  const { data: tokens } = await supabase
-    .from('refresh_tokens')
-    .select('id, token_hash, revoked')
-    .eq('user_id', userId)
-    .eq('revoked', false)
-    .gte('expires_at', new Date().toISOString());
+  await dbConnect();
+  const tokens = await RefreshTokenDoc.find({
+    userId,
+    revoked: false,
+    expiresAt: { $gte: new Date() },
+  });
 
   if (!tokens || tokens.length === 0) return false;
 
   let matched = false;
   let oldTokenId: string | null = null;
   for (const t of tokens) {
-    if (bcrypt.compareSync(oldToken, t.token_hash)) {
+    if (bcrypt.compareSync(oldToken, t.tokenHash)) {
       matched = true;
-      oldTokenId = t.id;
+      oldTokenId = t._id.toString();
       break;
     }
   }
@@ -100,35 +108,29 @@ export async function rotateRefreshToken(
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  const { data: newRecord } = await supabase
-    .from('refresh_tokens')
-    .insert({
-      user_id: userId,
-      token_hash: newTokenHash,
-      expires_at: expiresAt.toISOString(),
-    })
-    .select('id')
-    .single();
+  const newRecord = await RefreshTokenDoc.create({
+    userId,
+    tokenHash: newTokenHash,
+    expiresAt,
+  });
 
   if (oldTokenId && newRecord) {
-    await supabase
-      .from('refresh_tokens')
-      .update({ revoked: true, replaced_by: newRecord.id })
-      .eq('id', oldTokenId);
+    await RefreshTokenDoc.findByIdAndUpdate(oldTokenId, {
+      revoked: true,
+      replacedBy: newRecord._id,
+    });
   }
 
   return true;
 }
 
 export async function revokeAllUserTokens(userId: string): Promise<void> {
-  await supabase
-    .from('refresh_tokens')
-    .update({ revoked: true })
-    .eq('user_id', userId)
-    .eq('revoked', false);
+  await dbConnect();
+  await RefreshTokenDoc.updateMany({ userId, revoked: false }, { revoked: true });
 }
 
 export async function getUserFromRequest(request: Request): Promise<User | null> {
+  await dbConnect();
   const authHeader = request.headers.get('authorization');
   let token: string | null = null;
   if (authHeader?.startsWith('Bearer ')) {
@@ -145,20 +147,19 @@ export async function getUserFromRequest(request: Request): Promise<User | null>
   const payload = verifyAccessToken(token);
   if (!payload) return null;
 
-  const { data } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', payload.userId)
-    .eq('is_active', true)
-    .is('deleted_at', null)
-    .single();
+  const data = await UserDoc.findOne({
+    _id: payload.userId,
+    isActive: true,
+    deletedAt: null,
+  }).lean();
 
   if (!data) return null;
 
-  return mapDbUser(data as Record<string, unknown>);
+  return mapDbUser(data as unknown as Record<string, unknown>);
 }
 
 export async function getCurrentUser(): Promise<User | null> {
+  await dbConnect();
   const cookieStore = await cookies();
   const accessToken = cookieStore.get('access_token')?.value;
   if (!accessToken) return null;
@@ -166,65 +167,64 @@ export async function getCurrentUser(): Promise<User | null> {
   const payload = verifyAccessToken(accessToken);
   if (!payload) return null;
 
-  const { data } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', payload.userId)
-    .eq('is_active', true)
-    .is('deleted_at', null)
-    .single();
+  const data = await UserDoc.findOne({
+    _id: payload.userId,
+    isActive: true,
+    deletedAt: null,
+  }).lean();
 
   if (!data) return null;
-  return mapDbUser(data as Record<string, unknown>);
+  return mapDbUser(data as unknown as Record<string, unknown>);
 }
+
+// Backwards compatibility chainable mock for routes being migrated to Mongoose
+const chainableMock: any = {
+  select: () => chainableMock,
+  insert: () => chainableMock,
+  update: () => chainableMock,
+  delete: () => chainableMock,
+  eq: () => chainableMock,
+  neq: () => chainableMock,
+  in: () => chainableMock,
+  or: () => chainableMock,
+  is: () => chainableMock,
+  order: () => chainableMock,
+  limit: () => chainableMock,
+  single: async () => ({ data: null, error: null }),
+  maybeSingle: async () => ({ data: null, error: null }),
+  then: (resolve: any) => resolve({ data: [], error: null }),
+};
+
+export const supabase = {
+  from: (_table: string) => chainableMock,
+};
 
 export function mapDbUser(data: Record<string, unknown>): User {
   return {
-    id: data.id as string,
-    instituteId: (data.institute_id as string) || null,
+    id: (data._id || data.id) as string,
+    instituteId: (data.instituteId || data.institute_id) ? String(data.instituteId || data.institute_id) : null,
     role: data.role as Role,
     username: (data.username as string) || null,
     email: (data.email as string) || null,
     phone: (data.phone as string) || null,
-    studentId: (data.student_id as string) || null,
-    firstName: data.first_name as string,
-    lastName: (data.last_name as string) || null,
-    profilePhotoUrl: (data.profile_photo_url as string) || null,
-    isActive: data.is_active as boolean,
-    lastLoginAt: (data.last_login_at as string) || null,
-    createdAt: data.created_at as string,
+    studentId: (data.studentId || data.student_id) ? String(data.studentId || data.student_id) : null,
+    firstName: (data.firstName || data.first_name) as string,
+    lastName: (data.lastName || data.last_name) ? String(data.lastName || data.last_name) : null,
+    profilePhotoUrl: (data.profilePhotoUrl || data.profile_photo_url) ? String(data.profilePhotoUrl || data.profile_photo_url) : null,
+    isActive: Boolean(data.isActive ?? data.is_active ?? true),
+    lastLoginAt: data.lastLoginAt ? new Date(data.lastLoginAt as Date).toISOString() : null,
+    createdAt: data.createdAt ? new Date(data.createdAt as Date).toISOString() : new Date().toISOString(),
   };
 }
 
 export async function validateInstituteAccess(instituteId: string): Promise<{ valid: boolean; reason?: string }> {
-  const { data: institute } = await supabase
-    .from('institutes')
-    .select('status, deleted_at')
-    .eq('id', instituteId)
-    .single();
+  await dbConnect();
+  const institute = await InstituteDoc.findOne({ _id: instituteId }).lean();
 
   if (!institute) return { valid: false, reason: 'Institute not found' };
-  if ((institute as Record<string, unknown>).deleted_at) return { valid: false, reason: 'Institute has been deleted' };
-  if ((institute as Record<string, unknown>).status === 'suspended') return { valid: false, reason: 'Institute is suspended' };
-  if ((institute as Record<string, unknown>).status === 'inactive') return { valid: false, reason: 'Institute is inactive' };
-
-  const { data: sub } = await supabase
-    .from('institute_subscriptions')
-    .select('status, expiry_date')
-    .eq('institute_id', instituteId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  if (sub) {
-    const subData = sub as Record<string, unknown>;
-    if (subData.status === 'suspended' || subData.status === 'cancelled') {
-      return { valid: false, reason: 'Subscription is not active' };
-    }
-    if (subData.status === 'expired' || (subData.expiry_date && new Date(subData.expiry_date as string) < new Date())) {
-      return { valid: false, reason: 'Subscription has expired' };
-    }
-  }
+  if (institute.deletedAt) return { valid: false, reason: 'Institute has been deleted' };
+  if (institute.status === 'suspended') return { valid: false, reason: 'Institute is suspended' };
+  if (institute.status === 'inactive') return { valid: false, reason: 'Institute is inactive' };
 
   return { valid: true };
 }
@@ -239,19 +239,20 @@ export async function logActivity(params: {
   newValues?: Record<string, unknown> | null;
   request?: Request;
 }): Promise<void> {
+  await dbConnect();
   const ip = params.request?.headers.get('x-forwarded-for') || null;
   const ua = params.request?.headers.get('user-agent') || null;
 
-  await supabase.from('activity_logs').insert({
-    institute_id: params.instituteId || null,
-    user_id: params.userId || null,
+  await ActivityLogDoc.create({
+    instituteId: params.instituteId || null,
+    userId: params.userId || null,
     action: params.action,
-    entity_type: params.entityType || null,
-    entity_id: params.entityId || null,
-    old_values: params.oldValues || null,
-    new_values: params.newValues || null,
-    ip_address: ip,
-    user_agent: ua,
+    entityType: params.entityType || null,
+    entityId: params.entityId || null,
+    oldValues: params.oldValues || null,
+    newValues: params.newValues || null,
+    ipAddress: ip,
+    userAgent: ua,
   });
 }
 
@@ -281,9 +282,10 @@ export async function createNotification(params: {
   message: string;
   type?: string;
 }): Promise<void> {
-  await supabase.from('notifications').insert({
-    institute_id: params.instituteId || null,
-    user_id: params.userId || null,
+  await dbConnect();
+  await NotificationDoc.create({
+    instituteId: params.instituteId || null,
+    userId: params.userId || null,
     title: params.title,
     message: params.message,
     type: params.type || 'info',

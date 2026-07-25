@@ -1,7 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
 import {
-  supabase,
   verifyPassword,
   signAccessToken,
   signRefreshToken,
@@ -11,17 +10,29 @@ import {
   apiError,
   logActivity,
 } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import UserDoc from '@/models/User';
+import InstituteDoc from '@/models/Institute';
 import { ROLE_DASHBOARD_PATHS } from '@/lib/constants';
 import type { Role } from '@/lib/types';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown-ip';
+    const rateLimit = checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+    if (!rateLimit.success) {
+      return apiError('Too many login attempts. Please try again in 15 minutes.', 429);
+    }
+
     const body = await request.json();
     const { instituteCode, identifier, password } = body;
 
     if (!identifier || !password) {
       return apiError('Identifier and password are required', 400);
     }
+
+    await dbConnect();
 
     // 1. Check Super Admin authentication directly
     if (
@@ -31,22 +42,20 @@ export async function POST(request: NextRequest) {
       identifier === 'superadmin' ||
       identifier === 'superadmin@edumanage.com'
     ) {
-      const { data: superUser } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'super_admin')
-        .eq('is_active', true)
-        .is('deleted_at', null)
-        .or(`email.eq.${identifier},username.eq.${identifier}`)
-        .maybeSingle();
+      const superUser = await UserDoc.findOne({
+        role: 'super_admin',
+        isActive: true,
+        deletedAt: null,
+        $or: [{ email: identifier }, { username: identifier }],
+      }).lean();
 
-      if (superUser && verifyPassword(password, superUser.password_hash)) {
-        const user = mapDbUser(superUser);
+      if (superUser && verifyPassword(password, superUser.passwordHash)) {
+        const user = mapDbUser(superUser as unknown as Record<string, unknown>);
         const payload = { userId: user.id, role: user.role, instituteId: user.instituteId };
         const accessToken = signAccessToken(payload);
         const refreshToken = signRefreshToken(payload);
         await createRefreshTokenRecord(user.id, refreshToken);
-        await supabase.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', user.id);
+        await UserDoc.findByIdAndUpdate(user.id, { lastLoginAt: new Date() });
 
         const response = apiSuccess(
           {
@@ -76,18 +85,16 @@ export async function POST(request: NextRequest) {
       return apiError('Institute code is required for institute users', 400);
     }
 
-    const { data: institute } = await supabase
-      .from('institutes')
-      .select('id, status, deleted_at')
-      .eq('code', instituteCode)
-      .is('deleted_at', null)
-      .maybeSingle();
+    const institute = await InstituteDoc.findOne({
+      code: instituteCode.toUpperCase(),
+      deletedAt: null,
+    }).lean();
 
     if (!institute) {
       return apiError('Invalid institute code', 401);
     }
 
-    if (institute.status === 'pending_activation' || institute.status === 'pending') {
+    if (institute.status === 'pending') {
       return apiError('Your institute account is pending activation by Super Admin upon subscription plan verification.', 403);
     }
     if (institute.status === 'suspended') {
@@ -97,50 +104,35 @@ export async function POST(request: NextRequest) {
       return apiError('This institute is not active. Please contact support.', 403);
     }
 
-    // Check subscription
-    const { data: sub } = await supabase
-      .from('institute_subscriptions')
-      .select('status, expiry_date')
-      .eq('institute_id', institute.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (sub) {
-      if (sub.status === 'suspended' || sub.status === 'cancelled') {
-        return apiError('Institute subscription is not active. Please contact support.', 403);
-      }
-      if (sub.status === 'expired' || (sub.expiry_date && new Date(sub.expiry_date) < new Date())) {
-        return apiError('Institute subscription has expired. Please renew to continue.', 403);
-      }
-    }
-
     // Find user within institute
-    const { data: users } = await supabase
-      .from('users')
-      .select('*')
-      .eq('institute_id', institute.id)
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .or(`email.eq.${identifier},username.eq.${identifier},phone.eq.${identifier},student_id.eq.${identifier}`);
+    const dbUser = await UserDoc.findOne({
+      instituteId: institute._id,
+      isActive: true,
+      deletedAt: null,
+      $or: [
+        { email: identifier },
+        { username: identifier },
+        { phone: identifier },
+        { studentId: identifier },
+      ],
+    }).lean();
 
-    if (!users || users.length === 0) {
+    if (!dbUser) {
       return apiError('Invalid credentials', 401);
     }
 
-    const dbUser = users[0];
-    if (!verifyPassword(password, dbUser.password_hash)) {
+    if (!verifyPassword(password, dbUser.passwordHash)) {
       return apiError('Invalid credentials', 401);
     }
 
-    const user = mapDbUser(dbUser);
+    const user = mapDbUser(dbUser as unknown as Record<string, unknown>);
     const payload = { userId: user.id, role: user.role, instituteId: user.instituteId };
 
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
     await createRefreshTokenRecord(user.id, refreshToken);
 
-    await supabase.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', user.id);
+    await UserDoc.findByIdAndUpdate(user.id, { lastLoginAt: new Date() });
 
     await logActivity({
       instituteId: user.instituteId,

@@ -19,21 +19,20 @@ export function useApi() {
       headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
-    const res = await fetch(path, { ...options, headers });
+    const res = await fetch(path, { credentials: 'same-origin', ...options, headers });
 
     if (res.status === 401) {
-      // Try refresh
+      // Try refresh token via HttpOnly cookie
       const refreshRes = await fetch('/api/v1/auth/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
       });
       if (refreshRes.ok) {
         const refreshData = await refreshRes.json();
         if (refreshData.success && refreshData.data?.accessToken) {
-          localStorage.setItem('access_token', refreshData.data.accessToken);
-          localStorage.setItem('user_data', JSON.stringify(refreshData.data.user));
           headers['Authorization'] = `Bearer ${refreshData.data.accessToken}`;
-          const retryRes = await fetch(path, { ...options, headers });
+          const retryRes = await fetch(path, { credentials: 'same-origin', ...options, headers });
           return retryRes.json();
         }
       }

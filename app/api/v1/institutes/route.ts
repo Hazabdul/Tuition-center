@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
+import UserDoc from '@/models/User';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,50 +11,50 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (user.role !== 'super_admin') return apiError('Insufficient permissions', 403);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
-    const sortOrder = searchParams.get('sortOrder') || 'desc';
 
-    let query = supabase
-      .from('institutes')
-      .select('id, name, code, email, phone, city, state_region, country, status, student_limit, teacher_limit, admin_limit, created_at, deleted_at', { count: 'exact' })
-      .is('deleted_at', null);
+    const query: Record<string, unknown> = { deletedAt: null };
 
     if (search) {
-      query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%,email.ilike.%${search}%`);
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { code: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
     }
     if (status) {
-      query = query.eq('status', status);
+      query.status = status;
     }
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const total = await InstituteDoc.countDocuments(query);
+    const institutes = await InstituteDoc.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
 
-    const { data, count } = await query;
+    const formatted = institutes.map((inst) => ({
+      ...inst,
+      id: inst._id.toString(),
+      student_limit: inst.studentLimit,
+      teacher_limit: inst.teacherLimit,
+      admin_limit: inst.adminLimit,
+      state_region: inst.stateRegion,
+      postal_code: inst.postalCode,
+      created_at: inst.createdAt.toISOString(),
+    }));
 
-    const institutes = await Promise.all(
-      (data || []).map(async (inst) => {
-        const { data: sub } = await supabase
-          .from('institute_subscriptions')
-          .select('id, status, start_date, expiry_date, plan:subscription_plans(name, code)')
-          .eq('institute_id', inst.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        return { ...inst, subscription: sub };
-      })
-    );
-
-    return apiSuccess(institutes, 'Institutes fetched', {
+    return apiSuccess(formatted, 'Institutes fetched', {
       page,
       limit,
-      total: count || 0,
-      totalPages: Math.ceil((count || 0) / limit),
+      total,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List institutes error:', error);
@@ -65,45 +68,54 @@ export async function POST(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (user.role !== 'super_admin') return apiError('Insufficient permissions', 403);
 
+    await dbConnect();
+
     const body = await request.json();
-    const { name, code, email, phone, altPhone, address, city, stateRegion, country, postalCode, contactPersonName, contactPersonPhone, contactPersonEmail, studentLimit, teacherLimit, adminLimit, notes, planId, startDate, expiryDate } = body;
+    const {
+      name,
+      code,
+      email,
+      phone,
+      altPhone,
+      address,
+      city,
+      stateRegion,
+      country,
+      postalCode,
+      contactPersonName,
+      contactPersonPhone,
+      contactPersonEmail,
+      studentLimit,
+      teacherLimit,
+      adminLimit,
+      notes,
+    } = body;
 
     if (!name || !code) return apiError('Name and code are required', 400);
 
-    const { data: existing } = await supabase.from('institutes').select('id').eq('code', code).maybeSingle();
+    const existing = await InstituteDoc.findOne({ code: code.toUpperCase() });
     if (existing) return apiError('Institute code already exists', 409);
 
-    const { data: institute, error } = await supabase
-      .from('institutes')
-      .insert({
-        name, code, email, phone, alt_phone: altPhone, address, city, state_region: stateRegion,
-        country: country || 'India', postal_code: postalCode,
-        contact_person_name: contactPersonName, contact_person_phone: contactPersonPhone, contact_person_email: contactPersonEmail,
-        student_limit: studentLimit || 100, teacher_limit: teacherLimit || 20, admin_limit: adminLimit || 3,
-        notes, status: 'active',
-      })
-      .select('id, name, code')
-      .single();
-
-    if (error) return apiError(error.message, 400);
-
-    if (planId) {
-      await supabase.from('institute_subscriptions').insert({
-        institute_id: institute.id,
-        plan_id: planId,
-        status: 'active',
-        start_date: startDate || new Date().toISOString().split('T')[0],
-        expiry_date: expiryDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      });
-      await supabase.from('subscription_history').insert({
-        institute_id: institute.id,
-        plan_id: planId,
-        action: 'assigned',
-        new_status: 'active',
-        new_expiry: expiryDate,
-        performed_by: user.id,
-      });
-    }
+    const institute = await InstituteDoc.create({
+      name,
+      code: code.toUpperCase(),
+      email: email || null,
+      phone: phone || null,
+      altPhone: altPhone || null,
+      address: address || null,
+      city: city || null,
+      stateRegion: stateRegion || null,
+      country: country || 'India',
+      postalCode: postalCode || null,
+      contactPersonName: contactPersonName || null,
+      contactPersonPhone: contactPersonPhone || null,
+      contactPersonEmail: contactPersonEmail || null,
+      studentLimit: studentLimit || 100,
+      teacherLimit: teacherLimit || 20,
+      adminLimit: adminLimit || 3,
+      notes: notes || null,
+      status: 'active',
+    });
 
     // Auto-create Primary Institute Admin User
     const adminUserEmail = body.adminEmail || email || `admin@${code.toLowerCase()}.com`;
@@ -111,34 +123,36 @@ export async function POST(request: NextRequest) {
     const adminPassword = body.adminPassword || 'Password@123';
     const pwdHash = hashPassword(adminPassword);
 
-    await supabase.from('users').insert({
-      institute_id: institute.id,
+    await UserDoc.create({
+      instituteId: institute._id,
       role: 'institute_admin',
       username: adminUsername,
       email: adminUserEmail,
-      password_hash: pwdHash,
-      first_name: body.adminFirstName || contactPersonName || 'Institute',
-      last_name: body.adminLastName || 'Admin',
-      phone: contactPersonPhone || phone,
-      is_active: true,
+      passwordHash: pwdHash,
+      firstName: body.adminFirstName || contactPersonName || 'Institute',
+      lastName: body.adminLastName || 'Admin',
+      phone: contactPersonPhone || phone || null,
+      isActive: true,
     });
 
-    // Auto-seed Default Grading Rules
-    await supabase.from('grading_rules').insert([
-      { institute_id: institute.id, min_percentage: 90, max_percentage: 100, grade: 'A+' },
-      { institute_id: institute.id, min_percentage: 80, max_percentage: 89.99, grade: 'A' },
-      { institute_id: institute.id, min_percentage: 70, max_percentage: 79.99, grade: 'B' },
-      { institute_id: institute.id, min_percentage: 60, max_percentage: 69.99, grade: 'C' },
-      { institute_id: institute.id, min_percentage: 50, max_percentage: 59.99, grade: 'D' },
-      { institute_id: institute.id, min_percentage: 0, max_percentage: 49.99, grade: 'F' },
-    ]);
+    await logActivity({
+      userId: user.id,
+      action: 'institute_created',
+      entityType: 'institute',
+      entityId: institute._id.toString(),
+      newValues: { name, code },
+      request,
+    });
 
-    await logActivity({ userId: user.id, action: 'institute_created', entityType: 'institute', entityId: institute.id, newValues: { name, code }, request });
-
-    return apiSuccess({
-      ...institute,
-      adminCredentials: { username: adminUsername, email: adminUserEmail, password: adminPassword }
-    }, 'Institute and admin account created successfully');
+    return apiSuccess(
+      {
+        id: institute._id.toString(),
+        name: institute.name,
+        code: institute.code,
+        adminCredentials: { username: adminUsername, email: adminUserEmail, password: adminPassword },
+      },
+      'Institute and admin account created successfully'
+    );
   } catch (error) {
     console.error('Create institute error:', error);
     return apiError('An error occurred', 500);

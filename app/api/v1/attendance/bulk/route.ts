@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const upsertResults: Record<string, unknown>[] = [];
 
     for (const rec of records) {
-      const existing = existingMap.get(rec.studentId);
+      const existing = existingMap.get(rec.studentId) as any;
       const oldStatus = existing?.status || null;
 
       if (existing) {
