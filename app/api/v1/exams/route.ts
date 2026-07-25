@@ -20,8 +20,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('exams')
       .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code)', { count: 'exact' })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+      .eq('institute_id', user.instituteId);
 
     if (batchId) query = query.eq('batch_id', batchId);
     if (status) query = query.eq('status', status);
@@ -36,12 +35,10 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('Fetch exams database error:', error);
-      // Fallback query without relationship join if schema cache relationship fails
       let fallbackQuery = supabase
         .from('exams')
         .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at', { count: 'exact' })
-        .eq('institute_id', user.instituteId)
-        .is('deleted_at', null);
+        .eq('institute_id', user.instituteId);
       if (batchId) fallbackQuery = fallbackQuery.eq('batch_id', batchId);
       if (status) fallbackQuery = fallbackQuery.eq('status', status);
       if (search) fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
@@ -103,8 +100,7 @@ export async function POST(request: NextRequest) {
       .from('exams')
       .select('id')
       .eq('institute_id', user.instituteId)
-      .eq('code', code)
-      .is('deleted_at', null)
+      .ilike('code', code)
       .maybeSingle();
 
     if (existing) return apiError('Exam with this code already exists in the institute', 409);

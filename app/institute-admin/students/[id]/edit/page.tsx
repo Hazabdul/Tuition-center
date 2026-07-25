@@ -32,28 +32,32 @@ interface StudentFormData {
   emergencyContactName: string;
   emergencyContactPhone: string;
   notes: string;
+  username: string;
+  password: string;
 }
 
 const EMPTY_FORM: StudentFormData = {
-  studentId: '', admissionNumber: '', firstName: '', lastName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', academicYear: '', emergencyContactName: '', emergencyContactPhone: '', notes: '',
+  studentId: '', admissionNumber: '', firstName: '', lastName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', academicYear: '', emergencyContactName: '', emergencyContactPhone: '', notes: '', username: '', password: '',
 };
 
-function toForm(s: Student): StudentFormData {
+function toForm(s: any): StudentFormData {
   return {
-    studentId: s.studentId || '',
-    admissionNumber: s.admissionNumber || '',
-    firstName: s.firstName || '',
-    lastName: s.lastName || '',
-    dateOfBirth: s.dateOfBirth ? s.dateOfBirth.split('T')[0] : '',
+    studentId: s.studentId || s.student_id || '',
+    admissionNumber: s.admissionNumber || s.admission_number || '',
+    firstName: s.firstName || s.first_name || '',
+    lastName: s.lastName || s.last_name || '',
+    dateOfBirth: (s.dateOfBirth || s.date_of_birth) ? (s.dateOfBirth || s.date_of_birth).split('T')[0] : '',
     gender: s.gender || '',
     email: s.email || '',
     phone: s.phone || '',
-    altPhone: s.altPhone || '',
+    altPhone: s.altPhone || s.alt_phone || '',
     address: s.address || '',
-    academicYear: s.academicYear || '',
-    emergencyContactName: s.emergencyContactName || '',
-    emergencyContactPhone: s.emergencyContactPhone || '',
+    academicYear: s.academicYear || s.academic_year || '',
+    emergencyContactName: s.emergencyContactName || s.emergency_contact_name || '',
+    emergencyContactPhone: s.emergencyContactPhone || s.emergency_contact_phone || '',
     notes: s.notes || '',
+    username: s.user?.username || '',
+    password: '',
   };
 }
 
@@ -149,6 +153,20 @@ export default function EditStudentPage() {
                 <div className="space-y-1.5"><Label>Alt Phone</Label><Input value={form.altPhone} onChange={(e) => set('altPhone', e.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Academic Year</Label><Input value={form.academicYear} onChange={(e) => set('academicYear', e.target.value)} placeholder="2025-2026" /></div>
                 <div className="sm:col-span-2 space-y-1.5"><Label>Address</Label><Input value={form.address} onChange={(e) => set('address', e.target.value)} /></div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Login Credentials</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/70 p-4 rounded-lg border border-slate-200/80">
+                <div className="space-y-1.5">
+                  <Label>Student Username</Label>
+                  <Input value={form.username} onChange={(e) => set('username', e.target.value)} placeholder="e.g. STU001 or student.name" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{form.username ? 'Set / Reset Password' : 'Password'}</Label>
+                  <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder={form.username ? 'Leave blank to keep existing' : 'Min 6 characters'} />
+                </div>
               </div>
             </div>
 

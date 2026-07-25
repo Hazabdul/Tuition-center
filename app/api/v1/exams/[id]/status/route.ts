@@ -3,10 +3,10 @@ import { NextRequest } from 'next/server';
 import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  draft: ['scheduled'],
-  scheduled: ['completed'],
-  completed: ['published'],
-  published: [],
+  draft: ['scheduled', 'published'],
+  scheduled: ['completed', 'published', 'draft'],
+  completed: ['published', 'draft'],
+  published: ['draft', 'scheduled', 'completed'],
 };
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
@@ -29,7 +29,6 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       .select('id, status, name, code')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
       .maybeSingle();
 
     if (!existing) return apiError('Exam not found', 404);

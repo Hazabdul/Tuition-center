@@ -37,7 +37,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .select('id, institute_id, status')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
       .maybeSingle();
 
     if (!exam) return apiError('Exam not found', 404);

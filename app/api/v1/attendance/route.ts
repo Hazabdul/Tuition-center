@@ -14,30 +14,65 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || '';
     const sortBy = searchParams.get('sortBy') || 'date';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
-    const batchId = searchParams.get('batchId') || '';
+    const batchId = searchParams.get('batchId') || searchParams.get('batch_id') || '';
     const date = searchParams.get('date') || '';
-    const studentId = searchParams.get('studentId') || '';
+    const studentId = searchParams.get('studentId') || searchParams.get('student_id') || '';
     const status = searchParams.get('status') || '';
 
     let query = supabase
       .from('attendance')
-      .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at, student:students(id, first_name, last_name, student_id), batch:batches(id, name, code)', { count: 'exact' })
+      .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at, students(id, first_name, last_name, student_id), batches(id, name, code)', { count: 'exact' })
       .eq('institute_id', user.instituteId);
 
     if (batchId) query = query.eq('batch_id', batchId);
     if (date) query = query.eq('date', date);
     if (studentId) query = query.eq('student_id', studentId);
     if (status) query = query.eq('status', status);
+
     if (search) {
-      query = query.or(`student_id.ilike.%${search}%`);
+      const { data: matchedStudents } = await supabase
+        .from('students')
+        .select('id')
+        .eq('institute_id', user.instituteId)
+        .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%`);
+      const matchedIds = (matchedStudents || []).map(s => s.id);
+      if (matchedIds.length > 0) {
+        query = query.in('student_id', matchedIds);
+      } else {
+        return apiSuccess([], 'Attendance fetched', { page, limit, total: 0, totalPages: 1 });
+      }
     }
 
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     query = query.range((page - 1) * limit, page * limit - 1);
 
-    const { data, count } = await query;
+    let { data, count, error } = await query;
 
-    return apiSuccess(data || [], 'Attendance fetched', {
+    if (error) {
+      console.error('Fetch attendance database error:', error);
+      let fallbackQuery = supabase
+        .from('attendance')
+        .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at', { count: 'exact' })
+        .eq('institute_id', user.instituteId);
+      if (batchId) fallbackQuery = fallbackQuery.eq('batch_id', batchId);
+      if (date) fallbackQuery = fallbackQuery.eq('date', date);
+      if (studentId) fallbackQuery = fallbackQuery.eq('student_id', studentId);
+      if (status) fallbackQuery = fallbackQuery.eq('status', status);
+      fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
+      fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
+
+      const fallbackRes = await fallbackQuery;
+      data = fallbackRes.data;
+      count = fallbackRes.count;
+    }
+
+    const formattedData = (data || []).map((row: any) => ({
+      ...row,
+      student: row.students || row.student || null,
+      batch: row.batches || row.batch || null,
+    }));
+
+    return apiSuccess(formattedData, 'Attendance fetched', {
       page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
     });
   } catch (error) {

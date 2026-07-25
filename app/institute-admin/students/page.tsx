@@ -190,12 +190,20 @@ function CreateStudentDialog({ open, onOpenChange, onSubmit, isSubmitting, batch
     studentId: '', admissionNumber: '', firstName: '', lastName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', admissionDate: new Date().toISOString().split('T')[0], academicYear: '', batchId: '', emergencyContactName: '', emergencyContactPhone: '', notes: '', username: '', password: '',
   });
 
+  const handleStudentIdChange = (val: string) => {
+    setForm((prev) => ({
+      ...prev,
+      studentId: val,
+      username: prev.username ? prev.username : val.toLowerCase().replace(/[^a-z0-9]/g, ''),
+    }));
+  };
+
   return (
     <FormDialog open={open} onOpenChange={onOpenChange} title="Add Student" description="Create a new student record" onSubmit={() => onSubmit(form)} submitLabel="Create" isSubmitting={isSubmitting} size="lg">
       <div className="grid grid-cols-2 gap-4 py-2">
-        <div className="space-y-1.5"><Label>Student ID *</Label><Input value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value })} placeholder="STU001" /></div>
-        <div className="space-y-1.5"><Label>Admission Number *</Label><Input value={form.admissionNumber} onChange={(e) => setForm({ ...form, admissionNumber: e.target.value })} placeholder="ADM001" /></div>
-        <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Student ID *</Label><Input value={form.studentId} onChange={(e) => handleStudentIdChange(e.target.value)} placeholder="STU001" required /></div>
+        <div className="space-y-1.5"><Label>Admission Number *</Label><Input value={form.admissionNumber} onChange={(e) => setForm({ ...form, admissionNumber: e.target.value })} placeholder="ADM001" required /></div>
+        <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required /></div>
         <div className="space-y-1.5"><Label>Last Name</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Date of Birth</Label><Input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Gender</Label><Select value={form.gender} onValueChange={(v) => setForm({ ...form, gender: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
@@ -208,11 +216,13 @@ function CreateStudentDialog({ open, onOpenChange, onSubmit, isSubmitting, batch
         <div className="col-span-2 space-y-1.5"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Emergency Contact Name</Label><Input value={form.emergencyContactName} onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Emergency Contact Phone</Label><Input value={form.emergencyContactPhone} onChange={(e) => setForm({ ...form, emergencyContactPhone: e.target.value })} /></div>
-        <div className="col-span-2 border-t pt-4 mt-2">
-          <p className="text-sm font-medium text-slate-700 mb-3">Login Credentials (optional)</p>
+        <div className="col-span-2 bg-slate-50/80 p-3.5 rounded-lg border border-slate-200/80 space-y-3 mt-1">
+          <p className="text-sm font-semibold text-slate-800">Student Portal Login Credentials (Optional)</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5"><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="e.g. stu001 or student.name" /></div>
+            <div className="space-y-1.5"><Label>Password</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 characters" /></div>
+          </div>
         </div>
-        <div className="space-y-1.5"><Label>Username</Label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} placeholder="student01" /></div>
-        <div className="space-y-1.5"><Label>Password</Label><Input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Min 6 characters" /></div>
         <div className="col-span-2 space-y-1.5"><Label>Notes</Label><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>
       </div>
     </FormDialog>

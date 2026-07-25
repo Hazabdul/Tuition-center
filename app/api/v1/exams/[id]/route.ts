@@ -13,7 +13,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code, academic_year)')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
       .maybeSingle();
 
     if (error || !exam) {
@@ -22,7 +21,6 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at')
         .eq('id', params.id)
         .eq('institute_id', user.instituteId)
-        .is('deleted_at', null)
         .maybeSingle();
       exam = fallbackRes.data;
       error = fallbackRes.error;
@@ -70,7 +68,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       .select('id, batch_id, name, code, academic_year, start_date, end_date, description, status')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
       .maybeSingle();
 
     if (!existing) return apiError('Exam not found', 404);
@@ -82,7 +79,6 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         .eq('institute_id', user.instituteId)
         .ilike('code', code)
         .neq('id', params.id)
-        .is('deleted_at', null)
         .maybeSingle();
 
       if (existingCode) return apiError('Exam with this code already exists in the institute', 409);
@@ -141,18 +137,13 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       .select('id, status')
       .eq('id', params.id)
       .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
       .maybeSingle();
 
     if (!existing) return apiError('Exam not found', 404);
 
-    if (existing.status !== 'draft') {
-      return apiError('Only draft exams can be deleted', 400);
-    }
-
-    const { error } = await supabase
+    let { error } = await supabase
       .from('exams')
-      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .delete()
       .eq('id', params.id);
 
     if (error) return apiError(error.message, 400);

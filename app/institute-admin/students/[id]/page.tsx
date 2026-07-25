@@ -170,6 +170,7 @@ export default function StudentDetailPage() {
             <div className="space-y-3 pt-4 border-t border-slate-100">
               <InfoRow icon={Mail} label="Email" value={student.email} />
               <InfoRow icon={Phone} label="Phone" value={student.phone} />
+              <InfoRow icon={User} label="Portal Username" value={(student as any).user?.username || 'No login created'} />
               <InfoRow icon={Phone} label="Alt Phone" value={student.altPhone || (student as any).alt_phone} />
               <InfoRow icon={Calendar} label="Date of Birth" value={formatDate(student.dateOfBirth || (student as any).date_of_birth)} />
               <InfoRow icon={User} label="Gender" value={student.gender} />
