@@ -323,12 +323,16 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
               </SelectTrigger>
               <SelectContent>
                 {(allStudents || [])
-                  .filter((st) => !batch.students?.some((bs) => bs.id === st.id))
-                  .map((st) => (
-                    <SelectItem key={st.id} value={st.id}>
-                      {st.firstName} {st.lastName} ({st.studentId})
-                    </SelectItem>
-                  ))}
+                  .filter((st: any) => !batch.students?.some((bs) => bs.id === st.id))
+                  .map((st: any) => {
+                    const name = `${st.firstName || st.first_name || ''} ${st.lastName || st.last_name || ''}`.trim() || 'Student';
+                    const code = st.studentId || st.student_id || st.id;
+                    return (
+                      <SelectItem key={st.id} value={st.id}>
+                        {name} ({code})
+                      </SelectItem>
+                    );
+                  })}
               </SelectContent>
             </Select>
           </div>
@@ -362,12 +366,17 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
               </SelectTrigger>
               <SelectContent>
                 {(allTeachers || [])
-                  .filter((t) => !batch.teachers?.some((bt) => bt.id === t.id))
-                  .map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.firstName} {t.lastName} ({t.employeeId} - {t.specialization || 'General'})
-                    </SelectItem>
-                  ))}
+                  .filter((t: any) => !batch.teachers?.some((bt) => bt.id === t.id))
+                  .map((t: any) => {
+                    const name = `${t.firstName || t.first_name || ''} ${t.lastName || t.last_name || ''}`.trim() || 'Teacher';
+                    const code = t.employeeId || t.employee_id || t.id;
+                    const spec = t.specialization ? ` - ${t.specialization}` : '';
+                    return (
+                      <SelectItem key={t.id} value={t.id}>
+                        {name} ({code}{spec})
+                      </SelectItem>
+                    );
+                  })}
               </SelectContent>
             </Select>
           </div>
