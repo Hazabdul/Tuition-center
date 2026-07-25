@@ -149,9 +149,12 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-sm text-slate-500 mt-4">
-          <Link href="/" className="hover:text-slate-700">Back to home</Link>
-        </p>
+        <div className="flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 mt-4 px-1 gap-2">
+          <Link href="/" className="hover:text-slate-700">← Back to home</Link>
+          <Link href="/auth/register" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline">
+            Register New Institute →
+          </Link>
+        </div>
       </div>
     </div>
   );

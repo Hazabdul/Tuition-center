@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '@/lib/api-client';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
@@ -7,7 +8,9 @@ import { teacherNav } from '@/lib/nav/teacher';
 import { PageHeader, StatusBadge } from '@/components/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { BookMarked, Award, Target } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { BookMarked, Award, Target, FileText } from 'lucide-react';
 
 interface SubjectInfo {
   subject_id: string;
@@ -16,6 +19,7 @@ interface SubjectInfo {
     name: string;
     code: string;
     description: string | null;
+    syllabus?: string | null;
     max_marks: number;
     passing_marks: number;
     is_active: boolean;
@@ -24,6 +28,7 @@ interface SubjectInfo {
 
 export default function TeacherSubjectsPage() {
   const api = useApi();
+  const [activeSyllabusSubject, setActiveSyllabusSubject] = useState<SubjectInfo['subject'] | null>(null);
 
   const { data, isLoading } = useQuery<{ subjects: SubjectInfo[] }>({
     queryKey: ['teacher-subjects'],
@@ -67,25 +72,56 @@ export default function TeacherSubjectsPage() {
                   <StatusBadge status={ts.subject.is_active ? 'active' : 'inactive'} />
                 </div>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 {ts.subject.description && (
                   <p className="text-sm text-slate-500">{ts.subject.description}</p>
                 )}
-                <div className="flex items-center gap-4 pt-1">
-                  <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                <div className="flex items-center gap-4 text-xs text-slate-600">
+                  <div className="flex items-center gap-1.5">
                     <Award className="h-3.5 w-3.5 text-amber-500" />
                     Max: {ts.subject.max_marks}
                   </div>
-                  <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                  <div className="flex items-center gap-1.5">
                     <Target className="h-3.5 w-3.5 text-green-500" />
                     Pass: {ts.subject.passing_marks}
                   </div>
                 </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full text-xs text-purple-700 border-purple-200 hover:bg-purple-50"
+                  onClick={() => setActiveSyllabusSubject(ts.subject)}
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1.5" /> View Syllabus
+                </Button>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {/* Syllabus Modal */}
+      <Dialog open={!!activeSyllabusSubject} onOpenChange={(open) => !open && setActiveSyllabusSubject(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-5 w-5 text-purple-600" />
+              <span>{activeSyllabusSubject?.name} ({activeSyllabusSubject?.code}) - Syllabus</span>
+            </DialogTitle>
+            <DialogDescription>Detailed subject curriculum and topics</DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            {activeSyllabusSubject?.syllabus ? (
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-700 whitespace-pre-wrap max-h-80 overflow-y-auto">
+                {activeSyllabusSubject.syllabus}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 italic text-center py-6">No syllabus added yet for this subject.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

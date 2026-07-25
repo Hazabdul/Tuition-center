@@ -56,29 +56,62 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { name, code, description, maxMarks, passingMarks } = body;
+    const { name, code, description, syllabus, maxMarks, passingMarks } = body;
 
     const { data: existing } = await supabase.from('subjects').select('*').eq('id', params.id).eq('institute_id', user.instituteId).is('deleted_at', null).maybeSingle();
     if (!existing) return apiError('Subject not found', 404);
 
-    if (code && code !== (existing as Record<string, unknown>).code) {
-      const { data: existingCode } = await supabase.from('subjects').select('id').eq('institute_id', user.instituteId).eq('code', code).neq('id', params.id).is('deleted_at', null).maybeSingle();
-      if (existingCode) return apiError('Subject code already exists in this institute', 409);
+    let updatedCode = (existing as Record<string, unknown>).code as string;
+    if (code) {
+      updatedCode = code.toUpperCase().trim();
+      if (updatedCode !== (existing as Record<string, unknown>).code) {
+        const { data: existingCode } = await supabase
+          .from('subjects')
+          .select('id')
+          .eq('institute_id', user.instituteId)
+          .ilike('code', updatedCode)
+          .neq('id', params.id)
+          .is('deleted_at', null)
+          .maybeSingle();
+
+        if (existingCode) {
+          return apiError(`Subject code "${updatedCode}" is already used by another subject in this institute.`, 409);
+        }
+      }
     }
 
-    if (maxMarks !== undefined && passingMarks !== undefined && passingMarks > maxMarks) {
+    if (maxMarks !== undefined && passingMarks !== undefined && Number(passingMarks) > Number(maxMarks)) {
       return apiError('Passing marks cannot exceed max marks', 400);
     }
 
-    const { data: subject, error } = await supabase
+    const updatePayload: Record<string, unknown> = {
+      name,
+      code: updatedCode,
+      description,
+      syllabus: syllabus || null,
+      max_marks: maxMarks,
+      passing_marks: passingMarks,
+      updated_at: new Date().toISOString(),
+    };
+
+    let { data: subject, error } = await supabase
       .from('subjects')
-      .update({
-        name, code, description, max_marks: maxMarks, passing_marks: passingMarks,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', params.id)
       .select('id, name, code')
-      .single();
+      .maybeSingle();
+
+    if (error && error.message.includes('syllabus')) {
+      delete updatePayload.syllabus;
+      const fallbackUpdate = await supabase
+        .from('subjects')
+        .update(updatePayload)
+        .eq('id', params.id)
+        .select('id, name, code')
+        .maybeSingle();
+      subject = fallbackUpdate.data;
+      error = fallbackUpdate.error;
+    }
 
     if (error) return apiError(error.message, 400);
 

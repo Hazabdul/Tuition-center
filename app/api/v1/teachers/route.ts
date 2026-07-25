@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { employeeId, firstName, lastName, email, phone, altPhone, qualification, specialization, joiningDate, address, profilePhotoUrl, notes, username, password } = body;
+    const { employeeId, firstName, lastName, email, phone, altPhone, qualification, specialization, joiningDate, address, profilePhotoUrl, notes, username, password, subjectIds } = body;
 
     if (!employeeId || !firstName) return apiError('Employee ID and first name are required', 400);
 
@@ -107,6 +107,16 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) return apiError(error.message, 400);
+
+    // Insert linked subjects if subjectIds provided
+    if (Array.isArray(subjectIds) && subjectIds.length > 0) {
+      const teacherSubjectInserts = subjectIds.map((sid: string) => ({
+        teacher_id: teacher.id,
+        subject_id: sid,
+        institute_id: user.instituteId,
+      }));
+      await supabase.from('teacher_subject').insert(teacherSubjectInserts);
+    }
 
     await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'teacher_created', entityType: 'teacher', entityId: teacher.id, newValues: body, request });
 

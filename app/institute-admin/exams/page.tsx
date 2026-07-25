@@ -129,8 +129,8 @@ export default function ExamsPage() {
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
         searchPlaceholder="Search by name, code..."
         page={page}
-        totalPages={data?.pagination.totalPages || 1}
-        total={data?.pagination.total || 0}
+        totalPages={data?.pagination?.totalPages || 1}
+        total={data?.pagination?.total || 0}
         onPageChange={setPage}
         toolbar={
           <Button onClick={() => setShowCreate(true)}><Plus className="h-4 w-4 mr-2" /> Add Exam</Button>

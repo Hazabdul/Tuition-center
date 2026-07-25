@@ -76,8 +76,8 @@ export default function AttendanceHistoryPage() {
   });
 
   const rows = data?.rows ?? [];
-  const totalPages = data?.pagination.totalPages ?? 1;
-  const total = data?.pagination.total ?? 0;
+  const totalPages = data?.pagination?.totalPages ?? 1;
+  const total = data?.pagination?.total ?? 0;
 
   // Aggregate stats across the current page
   const totals = rows.reduce(

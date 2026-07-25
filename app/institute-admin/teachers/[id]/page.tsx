@@ -39,21 +39,23 @@ export default function TeacherDetailPage() {
     },
   });
 
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<string[]>([]);
+
   const { data: availableSubjects } = useQuery<Subject[]>({
     queryKey: ['subjects-available'],
     queryFn: async () => {
-      const res = await api.get<Subject[]>('/api/v1/subjects?limit=100');
-      return res.data || [];
+      const res = await api.get<any>('/api/v1/subjects?limit=200');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
     },
     enabled: showLinkSubject,
   });
 
   const linkSubjectMutation = useMutation({
-    mutationFn: (subjectId: string) => api.post(`/api/v1/teachers/${params.id}/subjects`, { subjectId }),
+    mutationFn: (subjectIds: string[]) => api.post(`/api/v1/teachers/${params.id}/subjects`, { subjectIds }),
     onSuccess: () => {
-      toast({ title: 'Subject assigned to teacher!' });
+      toast({ title: 'Subjects assigned to teacher successfully!' });
       setShowLinkSubject(false);
-      setSelectedSubjectId('');
+      setSelectedSubjectIds([]);
       queryClient.invalidateQueries({ queryKey: ['teacher', params.id] });
     },
     onError: (err: Error) => toast({ title: err.message, variant: 'destructive' }),
@@ -204,7 +206,7 @@ export default function TeacherDetailPage() {
                       </SelectContent>
                     </Select>
                     <Button
-                      onClick={() => selectedSubjectId && linkSubjectMutation.mutate(selectedSubjectId)}
+                      onClick={() => selectedSubjectId && linkSubjectMutation.mutate([selectedSubjectId])}
                       disabled={!selectedSubjectId || linkSubjectMutation.isPending}
                     >
                       <Link2 className="h-4 w-4 mr-1" /> Assign

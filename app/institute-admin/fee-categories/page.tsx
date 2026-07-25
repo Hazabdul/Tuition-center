@@ -131,8 +131,8 @@ export default function FeeCategoriesPage() {
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
         searchPlaceholder="Search by name or code..."
         page={page}
-        totalPages={data?.pagination.totalPages || 1}
-        total={data?.pagination.total || 0}
+        totalPages={data?.pagination?.totalPages || 1}
+        total={data?.pagination?.total || 0}
         onPageChange={setPage}
         emptyMessage="No fee categories found"
         toolbar={

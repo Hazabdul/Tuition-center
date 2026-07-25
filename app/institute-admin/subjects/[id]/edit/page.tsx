@@ -30,12 +30,13 @@ interface SubjectFormData {
   name: string;
   code: string;
   description: string;
+  syllabus: string;
   maxMarks: string;
   passingMarks: string;
 }
 
 const EMPTY_FORM: SubjectFormData = {
-  name: '', code: '', description: '', maxMarks: '100', passingMarks: '40',
+  name: '', code: '', description: '', syllabus: '', maxMarks: '100', passingMarks: '40',
 };
 
 function toForm(s: ExtendedSubject): SubjectFormData {
@@ -43,6 +44,7 @@ function toForm(s: ExtendedSubject): SubjectFormData {
     name: s.name || '',
     code: s.code || '',
     description: s.description || '',
+    syllabus: s.syllabus || '',
     maxMarks: String(s.maxMarks ?? s.max_marks ?? 100),
     passingMarks: String(s.passingMarks ?? s.passing_marks ?? 40),
   };
@@ -232,7 +234,11 @@ export default function EditSubjectPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Description</Label>
-                  <Textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} />
+                  <Textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={2} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Syllabus / Course Content</Label>
+                  <Textarea value={form.syllabus} onChange={(e) => set('syllabus', e.target.value)} rows={4} placeholder="Enter subject topics, course outline, or curriculum..." />
                 </div>
                 <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                   <StatusBadge status={activeVal ? 'active' : 'inactive'} />

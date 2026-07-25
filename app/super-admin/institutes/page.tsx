@@ -146,8 +146,8 @@ export default function InstitutesPage() {
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
         searchPlaceholder="Search institute by name, code, email..."
         page={page}
-        totalPages={data?.pagination.totalPages || 1}
-        total={data?.pagination.total || 0}
+        totalPages={data?.pagination?.totalPages || 1}
+        total={data?.pagination?.total || 0}
         onPageChange={setPage}
         sortBy={sortBy}
         sortOrder={sortOrder}
@@ -156,11 +156,12 @@ export default function InstitutesPage() {
         toolbar={
           <>
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v === 'all' ? '' : v); setPage(1); }}>
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Filter status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="pending_activation">Pending Activation</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="inactive">Inactive</SelectItem>
                 <SelectItem value="suspended">Suspended</SelectItem>
@@ -179,13 +180,32 @@ export default function InstitutesPage() {
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={() => impersonateMutation.mutate(row.id)}
-                className="text-purple-600 font-semibold focus:text-purple-700 focus:bg-purple-50"
-              >
-                <UserCheck className="mr-2 h-4 w-4" /> Log in as Admin
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="w-52">
+              {row.status === 'pending_activation' ? (
+                <DropdownMenuItem
+                  onClick={async () => {
+                    try {
+                      const res = await api.post(`/api/v1/institutes/${row.id}/activate`, {});
+                      if (res.success) {
+                        toast({ title: 'Institute Activated', description: 'Account and subscription plan activated successfully' });
+                        queryClient.invalidateQueries({ queryKey: ['institutes'] });
+                      }
+                    } catch (err: any) {
+                      toast({ title: 'Activation Failed', description: err.message, variant: 'destructive' });
+                    }
+                  }}
+                  className="text-green-700 font-semibold bg-green-50 focus:bg-green-100"
+                >
+                  <CheckCircle className="mr-2 h-4 w-4 text-green-600" /> Activate Account & Plan
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() => impersonateMutation.mutate(row.id)}
+                  className="text-purple-600 font-semibold focus:text-purple-700 focus:bg-purple-50"
+                >
+                  <UserCheck className="mr-2 h-4 w-4" /> Log in as Admin
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setQuotaTarget(row)}>
                 <Sliders className="mr-2 h-4 w-4" /> Manage Quotas
               </DropdownMenuItem>
@@ -198,7 +218,7 @@ export default function InstitutesPage() {
                 <DropdownMenuItem onClick={() => statusMutation.mutate({ id: row.id, status: 'suspended' })}>
                   <Ban className="mr-2 h-4 w-4 text-amber-600" /> Suspend Institute
                 </DropdownMenuItem>
-              ) : (
+              ) : row.status !== 'pending_activation' && (
                 <DropdownMenuItem onClick={() => statusMutation.mutate({ id: row.id, status: 'active' })}>
                   <CheckCircle className="mr-2 h-4 w-4 text-green-600" /> Activate Institute
                 </DropdownMenuItem>

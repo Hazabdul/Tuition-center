@@ -164,6 +164,7 @@ export interface Subject {
   name: string;
   code: string;
   description: string | null;
+  syllabus?: string | null;
   maxMarks: number;
   passingMarks: number;
   isActive: boolean;

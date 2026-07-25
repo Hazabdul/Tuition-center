@@ -51,8 +51,8 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
   const { data: allStudents } = useQuery<Student[]>({
     queryKey: ['all-students-picker'],
     queryFn: async () => {
-      const res = await api.get<Student[]>('/api/v1/students?limit=200');
-      return res.data || [];
+      const res = await api.get<any>('/api/v1/students?limit=200');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
     },
     enabled: showAddStudent,
   });
@@ -60,8 +60,8 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
   const { data: allTeachers } = useQuery<Teacher[]>({
     queryKey: ['all-teachers-picker'],
     queryFn: async () => {
-      const res = await api.get<Teacher[]>('/api/v1/teachers?limit=200');
-      return res.data || [];
+      const res = await api.get<any>('/api/v1/teachers?limit=200');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
     },
     enabled: showAddTeacher,
   });
@@ -69,8 +69,8 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
   const { data: allSubjects } = useQuery<Subject[]>({
     queryKey: ['all-subjects-picker'],
     queryFn: async () => {
-      const res = await api.get<Subject[]>('/api/v1/subjects?limit=200');
-      return res.data || [];
+      const res = await api.get<any>('/api/v1/subjects?limit=200');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
     },
     enabled: showAddSubject,
   });
@@ -457,13 +457,18 @@ export default function BatchDetailPage({ params }: { params: { id: string } }) 
                 <SelectValue placeholder="Choose subject..." />
               </SelectTrigger>
               <SelectContent>
-                {(allSubjects || [])
-                  .filter((s: any) => !batch.subjects?.some((bs: any) => bs.id === s.id))
-                  .map((s: any) => (
+                {(() => {
+                  const list = Array.isArray(allSubjects) ? allSubjects : [];
+                  const available = list.filter((s: any) => !batch.subjects?.some((bs: any) => bs.id === s.id));
+                  if (available.length === 0) {
+                    return <SelectItem value="_none" disabled>No unassigned subjects available</SelectItem>;
+                  }
+                  return available.map((s: any) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.name} ({s.code})
                     </SelectItem>
-                  ))}
+                  ));
+                })()}
               </SelectContent>
             </Select>
           </div>

@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Badge } from '@/components/ui/badge';
 import {
   Menu, LogOut, User as UserIcon, KeyRound, Bell, ChevronRight, GraduationCap,
-  PanelLeftClose, PanelLeftOpen, ChevronLeft
+  PanelLeftClose, PanelLeftOpen
 } from 'lucide-react';
 import Link from 'next/link';
 import { ROLE_LABELS } from '@/lib/constants';
@@ -42,14 +42,16 @@ export function DashboardLayout({
   const pathname = usePathname();
   const { user, logout, instituteCode } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  // Collapsible Sidebar State (persisted in localStorage)
   const [collapsed, setCollapsed] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('sidebar_collapsed');
       if (saved === 'true') setCollapsed(true);
+      if (document.cookie.includes('is_impersonating=true')) {
+        setIsImpersonating(true);
+      }
     }
   }, []);
 
@@ -64,7 +66,7 @@ export function DashboardLayout({
   }
 
   const userInitials = user
-    ? `${user.firstName.charAt(0)}${user.lastName?.charAt(0) || ''}`.toUpperCase()
+    ? `${user.firstName?.charAt(0) || ''}${user.lastName?.charAt(0) || ''}`.toUpperCase()
     : 'U';
 
   async function handleLogout() {
@@ -111,13 +113,6 @@ export function DashboardLayout({
       </nav>
     );
   }
-
-  const [isImpersonating, setIsImpersonating] = useState(() => {
-    if (typeof document !== 'undefined') {
-      return document.cookie.includes('is_impersonating=true');
-    }
-    return false;
-  });
 
   async function handleExitImpersonation() {
     try {
@@ -217,7 +212,6 @@ export function DashboardLayout({
                 <NavLinks onNavigate={() => setMobileOpen(false)} />
               </SheetContent>
             </Sheet>
-
 
             {/* Breadcrumbs */}
             <div className="hidden md:flex items-center gap-1 text-sm text-slate-500">

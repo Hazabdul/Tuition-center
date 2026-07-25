@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, MoreHorizontal, Eye, Pencil, Trash2, UserCheck, UserX } from 'lucide-react';
+import { Plus, MoreHorizontal, Eye, Pencil, Trash2, UserCheck, UserX, FileSpreadsheet } from 'lucide-react';
+import { ExcelImportModal } from '@/components/shared/excel-import-modal';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { formatDate } from '@/lib/utils';
@@ -109,6 +110,18 @@ export default function StudentsPage() {
     { key: 'is_active', header: 'Status', render: (row) => <StatusBadge status={row.is_active ? 'active' : 'inactive'} /> },
   ];
 
+  const [isImportOpen, setIsImportOpen] = useState(false);
+
+  const studentImportFields = [
+    { key: 'firstName', label: 'First Name', required: true, example: 'John' },
+    { key: 'lastName', label: 'Last Name', example: 'Doe' },
+    { key: 'studentId', label: 'Student ID', example: 'STU001' },
+    { key: 'email', label: 'Email', example: 'john.doe@example.com' },
+    { key: 'phone', label: 'Phone', example: '9876543210' },
+    { key: 'gender', label: 'Gender', example: 'male' },
+    { key: 'address', label: 'Address', example: '123 Main St' },
+  ];
+
   return (
     <DashboardLayout navSections={instituteAdminNav} role="institute_admin">
       <PageHeader title="Students" description="Manage student records" />
@@ -121,8 +134,8 @@ export default function StudentsPage() {
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
         searchPlaceholder="Search by name, ID, email..."
         page={page}
-        totalPages={data?.pagination.totalPages || 1}
-        total={data?.pagination.total || 0}
+        totalPages={data?.pagination?.totalPages || 1}
+        total={data?.pagination?.total || 0}
         onPageChange={setPage}
         toolbar={
           <>
@@ -134,7 +147,10 @@ export default function StudentsPage() {
                 <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={() => setShowCreate(true)}><Plus className="h-4 w-4 mr-2" /> Add Student</Button>
+            <Button variant="outline" onClick={() => setIsImportOpen(true)} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+              <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Import Excel
+            </Button>
+            <Button onClick={() => setShowCreate(true)}><Plus className="h-4 w-4 mr-1.5" /> Add Student</Button>
           </>
         }
         rowActions={(row) => (

@@ -230,13 +230,13 @@ export default function TakeAttendancePage() {
     const records = students.map((s: BatchStudent) => {
       const entry = attendanceRecords[s.id] ?? { status: 'present' as AttendanceStatus, remarks: '' };
       return {
-        student_id: s.id,
+        studentId: s.id,
         status: entry.status,
         remarks: entry.remarks,
       };
     });
     submitMutation.mutate({
-      batch_id: selectedBatch,
+      batchId: selectedBatch,
       date: selectedDate,
       records,
     });

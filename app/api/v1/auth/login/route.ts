@@ -87,6 +87,9 @@ export async function POST(request: NextRequest) {
       return apiError('Invalid institute code', 401);
     }
 
+    if (institute.status === 'pending_activation' || institute.status === 'pending') {
+      return apiError('Your institute account is pending activation by Super Admin upon subscription plan verification.', 403);
+    }
     if (institute.status === 'suspended') {
       return apiError('This institute has been suspended. Please contact support.', 403);
     }

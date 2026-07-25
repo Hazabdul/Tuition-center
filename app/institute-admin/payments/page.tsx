@@ -172,8 +172,8 @@ export default function PaymentsPage() {
           onSearchChange={(v) => { setSearch(v); setPage(1); }}
           searchPlaceholder="Search by receipt, student..."
           page={page}
-          totalPages={data?.pagination.totalPages || 1}
-          total={data?.pagination.total || 0}
+          totalPages={data?.pagination?.totalPages || 1}
+          total={data?.pagination?.total || 0}
           onPageChange={setPage}
           emptyMessage="No payments found"
           toolbar={

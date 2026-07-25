@@ -16,9 +16,10 @@ export async function GET(request: NextRequest) {
     const sortBy = searchParams.get('sortBy') || 'created_at';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
+    let selectFields = 'id, name, code, description, syllabus, max_marks, passing_marks, is_active, created_at';
     let query = supabase
       .from('subjects')
-      .select('id, name, code, description, max_marks, passing_marks, is_active, created_at', { count: 'exact' })
+      .select(selectFields, { count: 'exact' })
       .eq('institute_id', user.instituteId)
       .is('deleted_at', null);
 
@@ -31,7 +32,26 @@ export async function GET(request: NextRequest) {
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     query = query.range((page - 1) * limit, page * limit - 1);
 
-    const { data, count } = await query;
+    let { data, count, error } = await query;
+
+    if (error && error.message.includes('syllabus')) {
+      let fallbackQuery = supabase
+        .from('subjects')
+        .select('id, name, code, description, max_marks, passing_marks, is_active, created_at', { count: 'exact' })
+        .eq('institute_id', user.instituteId)
+        .is('deleted_at', null);
+      if (search) fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
+      if (status === 'active') fallbackQuery = fallbackQuery.eq('is_active', true);
+      if (status === 'inactive') fallbackQuery = fallbackQuery.eq('is_active', false);
+      fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
+      fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
+      const fallbackRes = await fallbackQuery;
+      data = fallbackRes.data;
+      count = fallbackRes.count;
+      error = fallbackRes.error;
+    }
+
+    if (error) return apiError(error.message, 400);
 
     return apiSuccess(data || [], 'Subjects fetched', {
       page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
@@ -50,29 +70,62 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { name, code, description, maxMarks, passingMarks, batchIds, teacherIds, studentIds } = body;
+    const { name, code, description, syllabus, maxMarks, passingMarks, batchIds, teacherIds, studentIds } = body;
 
-    if (!name || !code) return apiError('Name and code are required', 400);
+    if (!name) return apiError('Subject name is required', 400);
 
-    const { data: existingCode } = await supabase.from('subjects').select('id').eq('institute_id', user.instituteId).eq('code', code).is('deleted_at', null).maybeSingle();
-    if (existingCode) return apiError('Subject code already exists in this institute', 409);
+    let finalCode = (code || name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)).toUpperCase().trim();
+    if (!finalCode) finalCode = `SUB${Math.floor(100 + Math.random() * 900)}`;
+
+    const { data: existingCode } = await supabase
+      .from('subjects')
+      .select('id')
+      .eq('institute_id', user.instituteId)
+      .ilike('code', finalCode)
+      .is('deleted_at', null)
+      .maybeSingle();
+
+    if (existingCode) {
+      if (!code) {
+        finalCode = `${finalCode}${Math.floor(10 + Math.random() * 90)}`;
+      } else {
+        return apiError(`Subject code "${finalCode}" already exists in this institute. Please choose a unique code.`, 409);
+      }
+    }
 
     if (maxMarks !== undefined && passingMarks !== undefined && Number(passingMarks) > Number(maxMarks)) {
       return apiError('Passing marks cannot exceed max marks', 400);
     }
 
-    const { data: subject, error } = await supabase
+    const insertPayload: Record<string, unknown> = {
+      institute_id: user.instituteId,
+      name,
+      code: finalCode,
+      description,
+      syllabus: syllabus || null,
+      max_marks: maxMarks ? Number(maxMarks) : 100,
+      passing_marks: passingMarks ? Number(passingMarks) : 40,
+      is_active: true,
+    };
+
+    let { data: subject, error } = await supabase
       .from('subjects')
-      .insert({
-        institute_id: user.instituteId,
-        name, code, description,
-        max_marks: maxMarks ? Number(maxMarks) : 100, passing_marks: passingMarks ? Number(passingMarks) : 40,
-        is_active: true,
-      })
+      .insert(insertPayload)
       .select('id, name, code')
       .single();
 
-    if (error) return apiError(error.message, 400);
+    if (error && error.message.includes('syllabus')) {
+      delete insertPayload.syllabus;
+      const fallbackInsert = await supabase
+        .from('subjects')
+        .insert(insertPayload)
+        .select('id, name, code')
+        .single();
+      subject = fallbackInsert.data;
+      error = fallbackInsert.error;
+    }
+
+    if (error || !subject) return apiError(error?.message || 'Failed to create subject', 400);
 
     // Link batchIds if provided
     if (Array.isArray(batchIds) && batchIds.length > 0) {

@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, MoreHorizontal, Eye, Pencil, Trash2, UserCheck, UserX } from 'lucide-react';
+import { Plus, MoreHorizontal, Eye, Pencil, Trash2, UserCheck, UserX, FileSpreadsheet } from 'lucide-react';
+import { ExcelImportModal } from '@/components/shared/excel-import-modal';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { formatDate } from '@/lib/utils';
@@ -99,6 +100,17 @@ export default function ParentsPage() {
     { key: 'is_active', header: 'Status', render: (row) => <StatusBadge status={row.is_active ? 'active' : 'inactive'} /> },
   ];
 
+  const [showImport, setShowImport] = useState(false);
+
+  const parentImportFields = [
+    { key: 'firstName', label: 'First Name', required: true, example: 'Robert' },
+    { key: 'lastName', label: 'Last Name', example: 'Johnson' },
+    { key: 'email', label: 'Email', example: 'robert.j@example.com' },
+    { key: 'phone', label: 'Phone', example: '9876543210' },
+    { key: 'occupation', label: 'Occupation', example: 'Engineer' },
+    { key: 'address', label: 'Address', example: '789 Park Ave' },
+  ];
+
   return (
     <DashboardLayout navSections={instituteAdminNav} role="institute_admin">
       <PageHeader title="Parents" description="Manage parent and guardian records" />
@@ -111,8 +123,8 @@ export default function ParentsPage() {
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
         searchPlaceholder="Search by name, email, phone..."
         page={page}
-        totalPages={data?.pagination.totalPages || 1}
-        total={data?.pagination.total || 0}
+        totalPages={data?.pagination?.totalPages || 1}
+        total={data?.pagination?.total || 0}
         onPageChange={setPage}
         toolbar={
           <>
@@ -124,7 +136,10 @@ export default function ParentsPage() {
                 <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={() => setShowCreate(true)}><Plus className="h-4 w-4 mr-2" /> Add Parent</Button>
+            <Button variant="outline" onClick={() => setShowImport(true)} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+              <FileSpreadsheet className="h-4 w-4 mr-1.5" /> Import Excel
+            </Button>
+            <Button onClick={() => setShowCreate(true)}><Plus className="h-4 w-4 mr-1.5" /> Add Parent</Button>
           </>
         }
         rowActions={(row) => (
@@ -147,6 +162,18 @@ export default function ParentsPage() {
       />
 
       <CreateParentDialog open={showCreate} onOpenChange={setShowCreate} onSubmit={(body) => createMutation.mutate(body)} isSubmitting={createMutation.isPending} />
+
+      <ExcelImportModal
+        open={showImport}
+        onOpenChange={setShowImport}
+        title="Import Parents from Excel / CSV"
+        description="Upload an Excel file to bulk import parent/guardian records into your institute."
+        endpoint="/api/v1/parents/import"
+        fields={parentImportFields}
+        entityName="Parents"
+        sampleFilename="parents_import"
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['parents'] })}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

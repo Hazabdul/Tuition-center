@@ -10,11 +10,19 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { batchId, date, records } = body;
+    const batchId = body.batchId || body.batch_id;
+    const date = body.date;
+    const rawRecords = body.records || body.students || [];
 
-    if (!batchId || !date || !Array.isArray(records) || records.length === 0) {
+    if (!batchId || !date || !Array.isArray(rawRecords) || rawRecords.length === 0) {
       return apiError('Batch ID, date, and records array are required', 400);
     }
+
+    const records = rawRecords.map((r: any) => ({
+      studentId: r.studentId || r.student_id || r.id,
+      status: r.status,
+      remarks: r.remarks || null,
+    }));
 
     const inputDate = new Date(date);
     const today = new Date();
@@ -26,7 +34,7 @@ export async function POST(request: NextRequest) {
     const validStatuses = ['present', 'absent', 'late', 'leave'];
     for (const rec of records) {
       if (!rec.studentId || !rec.status) {
-        return apiError('Each record must have studentId and status', 400);
+        return apiError('Each record must have studentId (or student_id) and status', 400);
       }
       if (!validStatuses.includes(rec.status)) {
         return apiError(`Invalid status: ${rec.status}. Must be one of: present, absent, late, leave`, 400);
