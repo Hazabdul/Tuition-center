@@ -47,7 +47,7 @@ export default function ParentDetailPage() {
   });
 
   const linkMutation = useMutation({
-    mutationFn: (studentId: string) => api.post(`/api/v1/parents/${params.id}/children`, { studentId }),
+    mutationFn: (studentId: string) => api.post(`/api/v1/parents/${params.id}/link-student`, { studentId }),
     onSuccess: () => {
       toast({ title: 'Student linked successfully' });
       setShowLink(false);
@@ -58,7 +58,7 @@ export default function ParentDetailPage() {
   });
 
   const unlinkMutation = useMutation({
-    mutationFn: (studentId: string) => api.delete(`/api/v1/parents/${params.id}/children/${studentId}`),
+    mutationFn: (studentId: string) => api.delete(`/api/v1/parents/${params.id}/unlink-student/${studentId}`),
     onSuccess: () => {
       toast({ title: 'Student unlinked' });
       queryClient.invalidateQueries({ queryKey: ['parent', params.id] });
@@ -167,9 +167,13 @@ export default function ParentDetailPage() {
                         {linkableStudents.length === 0 ? (
                           <SelectItem value="_none" disabled>All students are already linked</SelectItem>
                         ) : (
-                          linkableStudents.map((s: Student) => (
-                            <SelectItem key={s.id} value={s.id}>{s.firstName} {s.lastName} ({s.studentId})</SelectItem>
-                          ))
+                          linkableStudents.map((s: any) => {
+                            const name = `${s.firstName || s.first_name || ''} ${s.lastName || s.last_name || ''}`.trim() || 'Student';
+                            const code = s.studentId || s.student_id || s.id;
+                            return (
+                              <SelectItem key={s.id} value={s.id}>{name} ({code})</SelectItem>
+                            );
+                          })
                         )}
                       </SelectContent>
                     </Select>
@@ -187,17 +191,20 @@ export default function ParentDetailPage() {
                 <EmptyState title="No children linked" description="No students are linked to this parent yet." />
               ) : (
                 <div className="space-y-2">
-                  {parent.children.map((child: Student) => (
-                    <div key={child.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-                          <Users className="h-5 w-5 text-blue-600" />
+                  {parent.children.map((child: any) => {
+                    const name = `${child.firstName || child.first_name || ''} ${child.lastName || child.last_name || ''}`.trim() || 'Student';
+                    const code = child.studentId || child.student_id || '-';
+                    return (
+                      <div key={child.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+                            <Users className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900">{name}</p>
+                            <p className="text-xs text-slate-500">{code} · {child.academicYear || child.academic_year || 'N/A'}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">{child.firstName} {child.lastName}</p>
-                          <p className="text-xs text-slate-500">{child.studentId} · {child.academicYear || 'N/A'}</p>
-                        </div>
-                      </div>
                       <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/students/${child.id}`)}>View</Button>
                         <Button
