@@ -38,7 +38,6 @@ export async function POST(
       institute_id: instituteId,
       batch_id: batchId,
       student_id: studentId,
-      enrollment_date: new Date().toISOString().split('T')[0],
     });
 
     if (insertErr) {

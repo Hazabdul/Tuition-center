@@ -218,16 +218,6 @@ export function DashboardLayout({
               </SheetContent>
             </Sheet>
 
-            {/* Quick Toggle Button on Header for Desktop */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleCollapse}
-              title={collapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-              className="hidden lg:inline-flex h-8 w-8 text-slate-500 hover:text-slate-900"
-            >
-              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
 
             {/* Breadcrumbs */}
             <div className="hidden md:flex items-center gap-1 text-sm text-slate-500">
