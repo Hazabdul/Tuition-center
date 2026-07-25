@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       }
 
       // If auto pay is enabled or triggered explicitly
-      if (isAutoPay || pendingFees.length <= 5) {
+      if (isAutoPay || (pendingFees?.length ?? 0) <= 5) {
         const chargeAmount = sf.balance_amount;
         const newPaidAmount = sf.paid_amount + chargeAmount;
         const newBalance = 0;

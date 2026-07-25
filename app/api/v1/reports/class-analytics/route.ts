@@ -20,10 +20,11 @@ export async function GET(request: NextRequest) {
     // Calculate Top Student Rankers
     const studentScoresMap = new Map<string, { studentName: string; studentCode: string; totalObtained: number; totalMax: number; count: number }>();
 
-    (marks || []).forEach((m) => {
+    (marks || []).forEach((m: any) => {
       const sId = m.student_id;
-      const sName = `${m.student?.first_name} ${m.student?.last_name}`;
-      const sCode = m.student?.student_id;
+      const st = Array.isArray(m.student) ? m.student[0] : m.student;
+      const sName = `${st?.first_name || ''} ${st?.last_name || ''}`.trim() || 'Student';
+      const sCode = st?.student_id || '-';
 
       if (!studentScoresMap.has(sId)) {
         studentScoresMap.set(sId, { studentName: sName, studentCode: sCode, totalObtained: 0, totalMax: 0, count: 0 });
@@ -49,10 +50,11 @@ export async function GET(request: NextRequest) {
     // Calculate Subject Performance Matrix
     const subjectMap = new Map<string, { subjectName: string; subjectCode: string; passCount: number; totalCount: number; avgPercentage: number }>();
 
-    (marks || []).forEach((m) => {
+    (marks || []).forEach((m: any) => {
       const subId = m.subject_id;
-      const subName = m.subject?.name || 'Subject';
-      const subCode = m.subject?.code || 'SUB';
+      const sub = Array.isArray(m.subject) ? m.subject[0] : m.subject;
+      const subName = sub?.name || 'Subject';
+      const subCode = sub?.code || 'SUB';
 
       if (!subjectMap.has(subId)) {
         subjectMap.set(subId, { subjectName: subName, subjectCode: subCode, passCount: 0, totalCount: 0, avgPercentage: 0 });

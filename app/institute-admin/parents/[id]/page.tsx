@@ -205,20 +205,21 @@ export default function ParentDetailPage() {
                             <p className="text-xs text-slate-500">{code} · {child.academicYear || child.academic_year || 'N/A'}</p>
                           </div>
                         </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/students/${child.id}`)}>View</Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => unlinkMutation.mutate(child.id)}
-                          disabled={unlinkMutation.isPending}
-                        >
-                          <Unlink className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="sm" onClick={() => router.push(`/institute-admin/students/${child.id}`)}>View</Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => unlinkMutation.mutate(child.id)}
+                            disabled={unlinkMutation.isPending}
+                          >
+                            <Unlink className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
