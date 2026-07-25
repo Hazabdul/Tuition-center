@@ -32,7 +32,14 @@ export async function GET(request: NextRequest) {
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     query = query.range((page - 1) * limit, page * limit - 1);
 
-    let { data, count, error } = await query;
+    let data: any[] | null = null;
+    let count: number | null = 0;
+    let error: any = null;
+
+    const res = await query;
+    data = res.data as any[] | null;
+    count = res.count;
+    error = res.error;
 
     if (error && error.message.includes('syllabus')) {
       let fallbackQuery = supabase
@@ -46,7 +53,7 @@ export async function GET(request: NextRequest) {
       fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
       fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
       const fallbackRes = await fallbackQuery;
-      data = fallbackRes.data;
+      data = fallbackRes.data as any[] | null;
       count = fallbackRes.count;
       error = fallbackRes.error;
     }
