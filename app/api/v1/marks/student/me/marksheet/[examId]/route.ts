@@ -72,7 +72,7 @@ export async function GET(
     if (exam.status !== 'published') return apiError('Results not published yet', 403);
 
     // Validate institute access
-    if (user.role !== 'super_admin' && exam.institute_id !== user.instituteId) {
+    if ((user.role as string) !== 'super_admin' && exam.institute_id !== user.instituteId) {
       return apiError('Access denied', 403);
     }
 
