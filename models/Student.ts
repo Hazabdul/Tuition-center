@@ -7,6 +7,7 @@ export interface IStudent extends Document {
   admissionNumber?: string | null;
   firstName: string;
   lastName?: string | null;
+  fatherName?: string | null;
   dateOfBirth?: Date | null;
   gender?: string | null;
   email?: string | null;
@@ -31,6 +32,7 @@ const StudentSchema = new Schema<IStudent>(
     admissionNumber: { type: String, default: null, trim: true },
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, default: null, trim: true },
+    fatherName: { type: String, default: null, trim: true },
     dateOfBirth: { type: Date, default: null },
     gender: { type: String, default: null },
     email: { type: String, default: null, lowercase: true, trim: true },

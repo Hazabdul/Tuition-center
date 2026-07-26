@@ -14,10 +14,13 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 import type { SubscriptionPlan } from '@/lib/types';
 
+import { useAuth } from '@/lib/auth-context';
+
 export default function RegisterInstitutePage() {
   const api = useApi();
   const router = useRouter();
   const { toast } = useToast();
+  const { login } = useAuth();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
@@ -54,9 +57,32 @@ export default function RegisterInstitutePage() {
   const registerMutation = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api.post('/api/v1/auth/register-institute', payload),
     onSuccess: (res: any) => {
-      setRegistrationResult(res.data);
+      const data = res.data;
+      setRegistrationResult(data);
       setStep(4);
-      toast({ title: 'Registration Submitted!', description: 'Your institute account is pending activation by Super Admin upon subscription plan verification.' });
+      if (data?.accessToken) {
+        login(
+          data.accessToken,
+          data.refreshToken,
+          {
+            id: data.adminCredentials?.id || data.instituteId,
+            instituteId: data.instituteId,
+            role: 'institute_admin',
+            username: data.adminCredentials?.username || form.adminUsername,
+            email: data.adminCredentials?.email || form.adminEmail,
+            firstName: form.adminFirstName || 'Admin',
+            lastName: form.adminLastName || '',
+            phone: form.phone || null,
+            studentId: null,
+            profilePhotoUrl: null,
+            isActive: true,
+            lastLoginAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+          data.code
+        );
+      }
+      toast({ title: 'Registration Successful!', description: `Welcome to EduManage! Institute Code: ${data?.code}` });
     },
     onError: (err: Error) => {
       toast({ title: 'Registration Failed', description: err.message, variant: 'destructive' });
@@ -212,7 +238,7 @@ export default function RegisterInstitutePage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Short Code (Optional)</Label>
-                  <Input value={form.code} onChange={(e) => setField('code', e.target.value.toUpperCase())} placeholder="e.g. CAMB" maxLength={8} />
+                  <Input value={form.code} onChange={(e) => setField('code', e.target.value)} placeholder="e.g. CAMB, apex, excel" maxLength={12} />
                   <p className="text-[11px] text-slate-400">Used for login institute code (Auto-generated if empty)</p>
                 </div>
                 <div className="space-y-1.5">
@@ -329,18 +355,18 @@ export default function RegisterInstitutePage() {
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 mb-2">
                 <CheckCircle2 className="h-10 w-10 text-green-600" />
               </div>
-              <CardTitle className="text-2xl text-slate-900">Registration Submitted Successfully!</CardTitle>
+              <CardTitle className="text-2xl text-slate-900">Institute Registered Successfully!</CardTitle>
               <CardDescription className="text-base text-slate-600 mt-2">
-                Your institute registration for <strong>{registrationResult?.name}</strong> has been received.
+                Welcome to EduManage! Your institute profile <strong>{registrationResult?.name}</strong> has been created.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 text-sm text-slate-600 border-t border-b border-slate-100 py-4 my-2">
-              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-left space-y-2">
-                <p className="font-semibold text-xs uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
-                  <Sparkles className="h-4 w-4 text-amber-600" /> Account Activation Notice
+              <div className="p-4 rounded-lg bg-green-50 border border-green-200 text-green-900 text-left space-y-2">
+                <p className="font-semibold text-xs uppercase tracking-wider text-green-800 flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-green-600" /> Account Activated & Default Grading Rules Seeded
                 </p>
                 <p className="text-xs leading-relaxed">
-                  Your account is currently in <strong>Pending Activation</strong> status. A Super Administrator will verify your subscription plan purchase and activate your institute account shortly.
+                  Your primary admin account is active. Default grading rules (A+, A, B, C, D, F) have been automatically configured for your institute.
                 </p>
               </div>
 
@@ -364,6 +390,9 @@ export default function RegisterInstitutePage() {
               </div>
             </CardContent>
             <CardFooter className="flex justify-center gap-3 pt-4">
+              <Button onClick={() => router.push(registrationResult?.redirectPath || '/institute-admin/dashboard')} className="bg-blue-600 hover:bg-blue-700 font-semibold">
+                Enter Admin Dashboard →
+              </Button>
               <Button variant="outline" onClick={() => router.push('/auth/login')}>
                 Go to Login Page
               </Button>

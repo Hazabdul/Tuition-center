@@ -24,6 +24,8 @@ interface StudentRow {
   admission_number: string;
   first_name: string;
   last_name: string | null;
+  father_name?: string | null;
+  fatherName?: string | null;
   email: string | null;
   phone: string | null;
   gender: string | null;
@@ -96,11 +98,27 @@ export default function StudentsPage() {
     {
       key: 'name',
       header: 'Student',
+      render: (row) => {
+        const fn = row.first_name || (row as any).firstName || '';
+        const ln = row.last_name || (row as any).lastName || '';
+        const fullName = `${fn} ${ln}`.trim() || 'Student';
+        const sId = row.student_id || (row as any).studentId || '';
+        const admNum = row.admission_number || (row as any).admissionNumber || '';
+        return (
+          <div>
+            <p className="font-medium text-slate-900">{fullName}</p>
+            <p className="text-xs text-slate-500">{sId}{admNum ? ` · ${admNum}` : ''}</p>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'father_name',
+      header: 'Father / Guardian',
       render: (row) => (
-        <div>
-          <p className="font-medium text-slate-900">{row.first_name} {row.last_name}</p>
-          <p className="text-xs text-slate-500">{row.student_id} · {row.admission_number}</p>
-        </div>
+        <span className="text-slate-700 text-xs font-medium">
+          {row.father_name || (row as any).fatherName || '-'}
+        </span>
       ),
     },
     { key: 'gender', header: 'Gender', render: (row) => <span className="text-slate-600 capitalize">{row.gender || '-'}</span> },
@@ -115,6 +133,7 @@ export default function StudentsPage() {
   const studentImportFields = [
     { key: 'firstName', label: 'First Name', required: true, example: 'John' },
     { key: 'lastName', label: 'Last Name', example: 'Doe' },
+    { key: 'fatherName', label: 'Father Name', example: 'Robert Doe' },
     { key: 'studentId', label: 'Student ID', example: 'STU001' },
     { key: 'email', label: 'Email', example: 'john.doe@example.com' },
     { key: 'phone', label: 'Phone', example: '9876543210' },
@@ -187,7 +206,7 @@ function CreateStudentDialog({ open, onOpenChange, onSubmit, isSubmitting, batch
   batches: Array<{ id: string; name: string; code: string }>;
 }) {
   const [form, setForm] = useState({
-    studentId: '', admissionNumber: '', firstName: '', lastName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', admissionDate: new Date().toISOString().split('T')[0], academicYear: '', batchId: '', emergencyContactName: '', emergencyContactPhone: '', notes: '', username: '', password: '',
+    studentId: '', admissionNumber: '', firstName: '', lastName: '', fatherName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', admissionDate: new Date().toISOString().split('T')[0], academicYear: '', batchId: '', emergencyContactName: '', emergencyContactPhone: '', notes: '', username: '', password: '',
   });
 
   const handleStudentIdChange = (val: string) => {
@@ -205,6 +224,7 @@ function CreateStudentDialog({ open, onOpenChange, onSubmit, isSubmitting, batch
         <div className="space-y-1.5"><Label>Admission Number *</Label><Input value={form.admissionNumber} onChange={(e) => setForm({ ...form, admissionNumber: e.target.value })} placeholder="ADM001" required /></div>
         <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required /></div>
         <div className="space-y-1.5"><Label>Last Name</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Father / Guardian Name</Label><Input value={form.fatherName} onChange={(e) => setForm({ ...form, fatherName: e.target.value })} placeholder="Father's Full Name" /></div>
         <div className="space-y-1.5"><Label>Date of Birth</Label><Input type="date" value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Gender</Label><Select value={form.gender} onValueChange={(v) => setForm({ ...form, gender: v })}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="male">Male</SelectItem><SelectItem value="female">Female</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
         <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>

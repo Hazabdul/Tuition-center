@@ -195,14 +195,42 @@ function CreateParentDialog({ open, onOpenChange, onSubmit, isSubmitting }: {
   onSubmit: (body: Record<string, unknown>) => void;
   isSubmitting: boolean;
 }) {
+  const api = useApi();
   const [form, setForm] = useState({
-    firstName: '', lastName: '', email: '', phone: '', altPhone: '', address: '', relationship: '', occupation: '', username: '', password: '', notes: '',
+    firstName: '', lastName: '', email: '', phone: '', altPhone: '', address: '', relationship: 'father', occupation: '', username: '', password: '', notes: '',
+  });
+  const [selectedChildIds, setSelectedChildIds] = useState<string[]>([]);
+
+  const { data: studentsData } = useQuery({
+    queryKey: ['students-parent-picker'],
+    queryFn: async () => {
+      const res = await api.get<any>('/api/v1/students?limit=200');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
+    },
+    enabled: open,
   });
 
+  const studentsList = Array.isArray(studentsData) ? studentsData : [];
+
+  const toggleChild = (id: string) => {
+    if (selectedChildIds.includes(id)) {
+      setSelectedChildIds(selectedChildIds.filter((c) => c !== id));
+    } else {
+      setSelectedChildIds([...selectedChildIds, id]);
+    }
+  };
+
+  const handleSubmit = () => {
+    onSubmit({
+      ...form,
+      studentIds: selectedChildIds,
+    });
+  };
+
   return (
-    <FormDialog open={open} onOpenChange={onOpenChange} title="Add Parent" description="Create a new parent or guardian record" onSubmit={() => onSubmit(form)} submitLabel="Create" isSubmitting={isSubmitting} size="lg">
+    <FormDialog open={open} onOpenChange={onOpenChange} title="Add Parent" description="Create a new parent or guardian record and link children" onSubmit={handleSubmit} submitLabel="Create" isSubmitting={isSubmitting} size="lg">
       <div className="grid grid-cols-2 gap-4 py-2">
-        <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} required /></div>
         <div className="space-y-1.5"><Label>Last Name</Label><Input value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
@@ -221,7 +249,34 @@ function CreateParentDialog({ open, onOpenChange, onSubmit, isSubmitting }: {
           </Select>
         </div>
         <div className="space-y-1.5"><Label>Occupation</Label><Input value={form.occupation} onChange={(e) => setForm({ ...form, occupation: e.target.value })} /></div>
-        <div className="col-span-2 space-y-1.5"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+        <div className="space-y-1.5"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+
+        {/* Link Children (Students) */}
+        {studentsList.length > 0 && (
+          <div className="col-span-2 space-y-2 border-t border-slate-100 pt-3">
+            <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+              <span>Link Children / Students (Select Multiple)</span>
+              <span className="text-[11px] font-normal text-slate-500">{selectedChildIds.length} selected</span>
+            </Label>
+            <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
+              {studentsList.map((st: any) => {
+                const checked = selectedChildIds.includes(st.id);
+                return (
+                  <label key={st.id} className={`flex items-center gap-2 p-2 rounded text-xs cursor-pointer transition-colors ${checked ? 'bg-purple-100 text-purple-900 font-medium' : 'hover:bg-white text-slate-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleChild(st.id)}
+                      className="rounded text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="truncate">{st.first_name || st.firstName} {st.last_name || st.lastName || ''} ({st.student_id || st.studentId})</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="col-span-2 border-t pt-4 mt-2">
           <p className="text-sm font-medium text-slate-700 mb-3">Login Credentials (optional)</p>
         </div>

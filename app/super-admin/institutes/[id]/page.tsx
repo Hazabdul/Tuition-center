@@ -245,6 +245,7 @@ export default function InstituteDetailsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">S.N.</TableHead>
                     <TableHead>Emp ID</TableHead>
                     <TableHead>Teacher Name</TableHead>
                     <TableHead>Specialization</TableHead>
@@ -253,8 +254,9 @@ export default function InstituteDetailsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.teachers || []).map((t: any) => (
+                  {(data?.teachers || []).map((t: any, idx: number) => (
                     <TableRow key={t.id}>
+                      <TableCell className="font-mono text-xs font-semibold text-slate-500">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{t.employee_id}</TableCell>
                       <TableCell className="font-medium text-slate-900">{t.first_name} {t.last_name}</TableCell>
                       <TableCell><Badge variant="outline" className="text-xs">{t.specialization}</Badge></TableCell>
@@ -278,6 +280,7 @@ export default function InstituteDetailsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">S.N.</TableHead>
                     <TableHead>Student ID</TableHead>
                     <TableHead>Student Name</TableHead>
                     <TableHead>Admission #</TableHead>
@@ -286,8 +289,9 @@ export default function InstituteDetailsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.students || []).map((st: any) => (
+                  {(data?.students || []).map((st: any, idx: number) => (
                     <TableRow key={st.id}>
+                      <TableCell className="font-mono text-xs font-semibold text-slate-500">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{st.student_id}</TableCell>
                       <TableCell className="font-medium text-slate-900">{st.first_name} {st.last_name}</TableCell>
                       <TableCell className="text-xs text-slate-600">{st.admission_number}</TableCell>
@@ -331,6 +335,7 @@ export default function InstituteDetailsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">S.N.</TableHead>
                     <TableHead>Code</TableHead>
                     <TableHead>Subject Name</TableHead>
                     <TableHead>Max Marks</TableHead>
@@ -338,8 +343,9 @@ export default function InstituteDetailsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.subjects || []).map((sub: any) => (
+                  {(data?.subjects || []).map((sub: any, idx: number) => (
                     <TableRow key={sub.id}>
+                      <TableCell className="font-mono text-xs font-semibold text-slate-500">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{sub.code}</TableCell>
                       <TableCell className="font-medium text-slate-900">{sub.name}</TableCell>
                       <TableCell className="text-xs">{sub.max_marks}</TableCell>
@@ -362,6 +368,7 @@ export default function InstituteDetailsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">S.N.</TableHead>
                     <TableHead>Exam Code</TableHead>
                     <TableHead>Exam Name</TableHead>
                     <TableHead>Year</TableHead>
@@ -371,8 +378,9 @@ export default function InstituteDetailsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.exams || []).map((ex: any) => (
+                  {(data?.exams || []).map((ex: any, idx: number) => (
                     <TableRow key={ex.id}>
+                      <TableCell className="font-mono text-xs font-semibold text-slate-500">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs font-semibold text-slate-700">{ex.code}</TableCell>
                       <TableCell className="font-medium text-slate-900">{ex.name}</TableCell>
                       <TableCell className="text-xs">{ex.academic_year}</TableCell>
@@ -403,6 +411,7 @@ export default function InstituteDetailsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">S.N.</TableHead>
                     <TableHead>Receipt #</TableHead>
                     <TableHead>Amount Paid</TableHead>
                     <TableHead>Method</TableHead>
@@ -410,13 +419,14 @@ export default function InstituteDetailsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.feeSummary?.recentPayments || []).map((pay: any) => {
+                  {(data?.feeSummary?.recentPayments || []).map((pay: any, idx: number) => {
                     const receiptNum = pay.receipt_number || pay.receiptNumber || 'RCP-N/A';
                     const amountPaid = pay.amount_paid ?? pay.amountPaid ?? pay.amount ?? 0;
                     const method = pay.payment_method || pay.paymentMethod || pay.paymentMode || 'online';
                     const paymentDate = pay.payment_date || pay.paymentDate || 'N/A';
                     return (
                       <TableRow key={pay.id || receiptNum}>
+                        <TableCell className="font-mono text-xs font-semibold text-slate-500">{idx + 1}</TableCell>
                         <TableCell className="font-mono text-xs font-semibold text-slate-700">{receiptNum}</TableCell>
                         <TableCell className="font-bold text-green-700">₹{(Number(amountPaid) || 0).toLocaleString()}</TableCell>
                         <TableCell className="text-xs capitalize">{method}</TableCell>

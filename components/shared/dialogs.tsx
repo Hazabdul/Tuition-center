@@ -34,7 +34,7 @@ export function FormDialog({
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
-        <div className="max-h-[60vh] overflow-y-auto">{children}</div>
+        <div className="max-h-[70vh] overflow-y-auto px-1 py-1 text-slate-800">{children}</div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             Cancel

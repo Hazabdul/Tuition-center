@@ -228,15 +228,16 @@ function CreateTeacherDialog({ open, onOpenChange, onSubmit, isSubmitting }: {
   };
 
   const handleSubmit = () => {
+    const matchedSubject = subjectsList.find((s: any) => s.name === form.specialization || s.code === form.specialization);
     onSubmit({
       ...form,
-      subjectIds: selectedSubjectIds,
+      subjectIds: matchedSubject ? [matchedSubject.id] : [],
     });
   };
 
   return (
-    <FormDialog open={open} onOpenChange={onOpenChange} title="Add Teacher" description="Create a new teacher record and assign subjects" onSubmit={handleSubmit} submitLabel="Create Teacher" isSubmitting={isSubmitting} size="lg">
-      <div className="grid grid-cols-2 gap-4 py-2 max-h-[70vh] overflow-y-auto pr-1">
+    <FormDialog open={open} onOpenChange={onOpenChange} title="Add Teacher" description="Create a new teacher record" onSubmit={handleSubmit} submitLabel="Create Teacher" isSubmitting={isSubmitting} size="lg">
+      <div className="grid grid-cols-2 gap-4 py-2">
         <div className="space-y-1.5"><Label>Employee ID *</Label><Input value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} placeholder="EMP001" /></div>
         <div className="space-y-1.5"><Label>Joining Date *</Label><Input type="date" value={form.joiningDate} onChange={(e) => setForm({ ...form, joiningDate: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
@@ -244,33 +245,34 @@ function CreateTeacherDialog({ open, onOpenChange, onSubmit, isSubmitting }: {
         <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
         <div className="space-y-1.5"><Label>Qualification</Label><Input value={form.qualification} onChange={(e) => setForm({ ...form, qualification: e.target.value })} placeholder="M.Sc, B.Ed" /></div>
-        <div className="space-y-1.5"><Label>Specialization</Label><Input value={form.specialization} onChange={(e) => setForm({ ...form, specialization: e.target.value })} placeholder="Mathematics / Science" /></div>
-
-        {/* Multi-subject picker */}
-        {subjectsList.length > 0 && (
-          <div className="col-span-2 space-y-2 border-t border-slate-100 pt-3">
-            <Label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-              <span>Assign Subjects (Select Multiple)</span>
-              <span className="text-[11px] font-normal text-slate-500">{selectedSubjectIds.length} selected</span>
-            </Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
-              {subjectsList.map((s: any) => {
-                const checked = selectedSubjectIds.includes(s.id);
-                return (
-                  <label key={s.id} className={`flex items-center gap-2 p-2 rounded text-xs cursor-pointer transition-colors ${checked ? 'bg-purple-100 text-purple-900 font-medium' : 'hover:bg-white text-slate-700'}`}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSubject(s.id)}
-                      className="rounded text-purple-600 focus:ring-purple-500"
-                    />
-                    <span className="truncate">{s.name} ({s.code})</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        <div className="space-y-1.5">
+          <Label>Specialization (Subject) *</Label>
+          {subjectsList.length === 0 ? (
+            <Input
+              value={form.specialization}
+              onChange={(e) => setForm({ ...form, specialization: e.target.value })}
+              placeholder="e.g. Physics XI"
+            />
+          ) : (
+            <Select
+              value={form.specialization}
+              onValueChange={(v) => {
+                setForm({ ...form, specialization: v });
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Subject Specialization" />
+              </SelectTrigger>
+              <SelectContent>
+                {subjectsList.map((s: any) => (
+                  <SelectItem key={s.id} value={s.name}>
+                    {s.name} ({s.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
 
         <div className="col-span-2 space-y-1.5"><Label>Address</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
         <div className="col-span-2 border-t pt-4 mt-2">

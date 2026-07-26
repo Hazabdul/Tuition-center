@@ -29,6 +29,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return apiSuccess({
       ...(student as any),
       id: (student as any)._id.toString(),
+      father_name: (student as any).fatherName ?? null,
       user: userAccount ? { ...userAccount, id: userAccount._id.toString() } : null,
       batches: [],
       parents: [],
@@ -50,7 +51,8 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     await dbConnect();
 
     const body = await request.json();
-    const { studentId, admissionNumber, firstName, lastName, dateOfBirth, gender, email, phone, altPhone, address, academicYear, emergencyContactName, emergencyContactPhone, notes, username, password } = body;
+    const { studentId, admissionNumber, firstName, lastName, fatherName, dateOfBirth, gender, email, phone, altPhone, address, academicYear, emergencyContactName, emergencyContactPhone, notes, username, password } = body;
+    const finalFatherName = fatherName ?? body.father_name ?? undefined;
 
     const existQuery: Record<string, unknown> = { _id: params.id };
     if (user.role !== 'super_admin' && user.instituteId) {
@@ -108,25 +110,30 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
+    const updateData: Record<string, unknown> = {
+      userId,
+      studentId: studentId || existing.studentId,
+      admissionNumber,
+      firstName: firstName || existing.firstName,
+      lastName,
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+      gender,
+      email,
+      phone,
+      altPhone,
+      address,
+      academicYear,
+      emergencyContactName,
+      emergencyContactPhone,
+      notes,
+    };
+    if (finalFatherName !== undefined) {
+      updateData.fatherName = finalFatherName;
+    }
+
     const updatedStudent = await StudentDoc.findByIdAndUpdate(
       params.id,
-      {
-        userId,
-        studentId: studentId || existing.studentId,
-        admissionNumber,
-        firstName: firstName || existing.firstName,
-        lastName,
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        gender,
-        email,
-        phone,
-        altPhone,
-        address,
-        academicYear,
-        emergencyContactName,
-        emergencyContactPhone,
-        notes,
-      },
+      updateData,
       { new: true }
     );
 
@@ -146,6 +153,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         id: updatedStudent?._id.toString(),
         studentId: updatedStudent?.studentId,
         firstName: updatedStudent?.firstName,
+        fatherName: updatedStudent?.fatherName,
         userId: updatedStudent?.userId,
       },
       'Student updated successfully'

@@ -48,6 +48,8 @@ function toForm(t: Teacher): TeacherFormData {
   };
 }
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 export default function EditTeacherPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -64,6 +66,16 @@ export default function EditTeacherPage() {
       return res.data;
     },
   });
+
+  const { data: subjectsData } = useQuery({
+    queryKey: ['subjects-list-picker'],
+    queryFn: async () => {
+      const res = await api.get<any>('/api/v1/subjects?limit=200');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
+    },
+  });
+
+  const subjectsList = Array.isArray(subjectsData) ? subjectsData : [];
 
   useEffect(() => {
     if (teacher) setForm(toForm(teacher));
@@ -133,7 +145,25 @@ export default function EditTeacherPage() {
               <h3 className="text-sm font-semibold text-slate-700 mb-3">Professional</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5"><Label>Qualification</Label><Input value={form.qualification} onChange={(e) => set('qualification', e.target.value)} placeholder="M.Sc, B.Ed" /></div>
-                <div className="space-y-1.5"><Label>Specialization</Label><Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} placeholder="Mathematics" /></div>
+                <div className="space-y-1.5">
+                  <Label>Specialization (Subject) *</Label>
+                  {subjectsList.length === 0 ? (
+                    <Input value={form.specialization} onChange={(e) => set('specialization', e.target.value)} placeholder="Mathematics" />
+                  ) : (
+                    <Select value={form.specialization} onValueChange={(v) => set('specialization', v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Subject Specialization" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {subjectsList.map((s: any) => (
+                          <SelectItem key={s.id} value={s.name}>
+                            {s.name} ({s.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
               </div>
             </div>
 

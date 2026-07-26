@@ -20,6 +20,8 @@ export interface DataTableProps<T> {
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
   page?: number;
+  limit?: number;
+  showSerialNumber?: boolean;
   totalPages?: number;
   total?: number;
   onPageChange?: (page: number) => void;
@@ -39,6 +41,8 @@ export function DataTable<T extends { id: string }>({
   onSearchChange,
   searchPlaceholder = 'Search...',
   page = 1,
+  limit = 20,
+  showSerialNumber = true,
   totalPages = 1,
   total = 0,
   onPageChange,
@@ -53,6 +57,8 @@ export function DataTable<T extends { id: string }>({
     if (!onSort) return;
     onSort(key);
   }
+
+  const effectiveLimit = limit || 20;
 
   return (
     <div className="space-y-4">
@@ -76,6 +82,9 @@ export function DataTable<T extends { id: string }>({
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
+                {showSerialNumber && (
+                  <th className="text-left px-4 py-3 font-medium text-slate-600 w-12 text-xs">S.N.</th>
+                )}
                 {columns.map((col) => (
                   <th
                     key={col.key}
@@ -105,6 +114,9 @@ export function DataTable<T extends { id: string }>({
               {isLoading ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-100">
+                    {showSerialNumber && (
+                      <td className="px-4 py-3 w-12"><div className="h-4 bg-slate-100 rounded animate-pulse" /></td>
+                    )}
                     {columns.map((col) => (
                       <td key={col.key} className="px-4 py-3">
                         <div className="h-4 bg-slate-100 rounded animate-pulse" />
@@ -115,13 +127,18 @@ export function DataTable<T extends { id: string }>({
                 ))
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={columns.length + (rowActions ? 1 : 0)} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={columns.length + (showSerialNumber ? 1 : 0) + (rowActions ? 1 : 0)} className="px-4 py-12 text-center text-slate-500">
                     {emptyMessage}
                   </td>
                 </tr>
               ) : (
-                data.map((row) => (
+                data.map((row, index) => (
                   <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    {showSerialNumber && (
+                      <td className="px-4 py-3 text-slate-500 font-mono text-xs font-semibold w-12">
+                        {(page - 1) * effectiveLimit + index + 1}
+                      </td>
+                    )}
                     {columns.map((col) => (
                       <td key={col.key} className="px-4 py-3 text-slate-700">
                         {col.render ? col.render(row) : (row as Record<string, unknown>)[col.key] as ReactNode}

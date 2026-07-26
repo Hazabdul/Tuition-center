@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       filter.$or = [
         { firstName: regex },
         { lastName: regex },
+        { fatherName: regex },
         { studentId: regex },
         { admissionNumber: regex },
         { email: regex },
@@ -45,6 +46,22 @@ export async function GET(request: NextRequest) {
     }
     if (status === 'active') filter.isActive = true;
     if (status === 'inactive') filter.isActive = false;
+
+    if (user.role === 'teacher') {
+      const TeacherDoc = (await import('@/models/Teacher')).default;
+      const teacher = await TeacherDoc.findOne({ userId: new mongoose.Types.ObjectId(user.id), deletedAt: null }).select('_id').lean();
+      if (teacher) {
+        const batches = await BatchDoc.find({ instituteId: instituteObjId, teachers: teacher._id, deletedAt: null }).select('students').lean();
+        const studentIds = Array.from(new Set(batches.flatMap((b) => (b.students || []).map((s) => s.toString()))));
+        filter._id = { $in: studentIds.map((id) => new mongoose.Types.ObjectId(id)) };
+      }
+    } else if (user.role === 'parent') {
+      const ParentDoc = (await import('@/models/Parent')).default;
+      const parent = await ParentDoc.findOne({ userId: new mongoose.Types.ObjectId(user.id), deletedAt: null }).select('children').lean();
+      if (parent && Array.isArray(parent.children) && parent.children.length > 0) {
+        filter._id = { $in: parent.children };
+      }
+    }
 
     if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
       const batch = await BatchDoc.findById(batchId).select('students').lean();
@@ -57,7 +74,7 @@ export async function GET(request: NextRequest) {
 
     const [records, total] = await Promise.all([
       StudentDoc.find(filter)
-        .select('_id studentId admissionNumber firstName lastName email phone gender academicYear isActive createdAt')
+        .select('_id studentId admissionNumber firstName lastName fatherName email phone gender academicYear isActive createdAt')
         .sort(sortField)
         .skip(skip)
         .limit(limit)
@@ -68,15 +85,24 @@ export async function GET(request: NextRequest) {
     const data = records.map((s) => ({
       id: s._id.toString(),
       studentId: s.studentId,
+      student_id: s.studentId,
       admissionNumber: s.admissionNumber ?? null,
+      admission_number: s.admissionNumber ?? null,
       firstName: s.firstName,
+      first_name: s.firstName,
       lastName: s.lastName ?? null,
+      last_name: s.lastName ?? null,
+      fatherName: s.fatherName ?? null,
+      father_name: s.fatherName ?? null,
       email: s.email ?? null,
       phone: s.phone ?? null,
       gender: s.gender ?? null,
       academicYear: s.academicYear ?? null,
+      academic_year: s.academicYear ?? null,
       isActive: s.isActive,
+      is_active: s.isActive,
       createdAt: s.createdAt,
+      created_at: s.createdAt,
     }));
 
     return apiSuccess(data, 'Students fetched', {
@@ -97,10 +123,12 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const {
-      studentId, admissionNumber, firstName, lastName, dateOfBirth, gender,
+      studentId, admissionNumber, firstName, lastName, fatherName, dateOfBirth, gender,
       email, phone, altPhone, address, academicYear, batchId,
       emergencyContactName, emergencyContactPhone, notes, username, password,
     } = body;
+
+    const finalFatherName = fatherName || body.father_name || null;
 
     if (!studentId || !firstName) {
       return apiError('Student ID and first name are required', 400);
@@ -167,6 +195,7 @@ export async function POST(request: NextRequest) {
       admissionNumber: admissionNumber?.trim() || null,
       firstName: firstName.trim(),
       lastName: lastName?.trim() || null,
+      fatherName: finalFatherName?.trim() || null,
       dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
       gender: gender || null,
       email: email ? email.toLowerCase().trim() : null,
@@ -192,12 +221,12 @@ export async function POST(request: NextRequest) {
       action: 'student_created',
       entityType: 'student',
       entityId: student._id.toString(),
-      newValues: { studentId, firstName, lastName },
+      newValues: { studentId, firstName, lastName, fatherName: finalFatherName },
       request,
     });
 
     return apiSuccess(
-      { id: student._id.toString(), studentId: student.studentId, firstName: student.firstName, lastName: student.lastName },
+      { id: student._id.toString(), studentId: student.studentId, firstName: student.firstName, lastName: student.lastName, fatherName: student.fatherName },
       'Student created successfully'
     );
   } catch (error) {

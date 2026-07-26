@@ -162,6 +162,7 @@ export default function SuperAdminReportsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">S.N.</TableHead>
                 <TableHead>Invoice #</TableHead>
                 <TableHead>Institute</TableHead>
                 <TableHead>Plan</TableHead>
@@ -172,8 +173,9 @@ export default function SuperAdminReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data?.transactions || []).map((t: any) => (
+              {(data?.transactions || []).map((t: any, idx: number) => (
                 <TableRow key={t.id}>
+                  <TableCell className="font-mono text-xs font-semibold text-slate-500">{idx + 1}</TableCell>
                   <TableCell className="font-mono text-xs font-medium text-slate-700">{t.receiptNumber}</TableCell>
                   <TableCell>
                     <div className="font-medium text-slate-900">{t.instituteName}</div>

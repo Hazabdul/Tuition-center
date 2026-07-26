@@ -110,9 +110,8 @@ export default function LoginPage() {
                   id="instituteCode"
                   value={instituteCode}
                   onChange={e => setInstituteCode(e.target.value)}
-                  placeholder="e.g. APEX"
+                  placeholder="e.g. APEX, apex, excel"
                   required
-                  className="uppercase"
                 />
               </div>
               <div className="space-y-1.5">

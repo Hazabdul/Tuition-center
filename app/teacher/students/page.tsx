@@ -20,11 +20,15 @@ interface StudentRow {
 }
 
 const columns: Column<StudentRow>[] = [
-  { key: 'student_id', header: 'ID', sortable: true },
+  { key: 'student_id', header: 'ID', sortable: true, render: (row) => <span className="font-mono text-xs font-semibold">{row.student_id || (row as any).studentId || '—'}</span> },
   {
     key: 'first_name',
     header: 'Name',
-    render: (row) => <span className="font-medium">{row.first_name} {row.last_name || ''}</span>,
+    render: (row) => {
+      const fn = row.first_name || (row as any).firstName || '';
+      const ln = row.last_name || (row as any).lastName || '';
+      return <span className="font-medium text-slate-900">{`${fn} ${ln}`.trim() || 'Student'}</span>;
+    },
   },
   { key: 'email', header: 'Email', render: (row) => <span>{row.email || '—'}</span> },
   { key: 'phone', header: 'Phone', render: (row) => <span>{row.phone || '—'}</span> },

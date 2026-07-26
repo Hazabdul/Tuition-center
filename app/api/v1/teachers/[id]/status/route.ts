@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
 import { dbConnect } from '@/lib/mongodb';
 import TeacherDoc from '@/models/Teacher';
+import UserDoc from '@/models/User';
 import mongoose from 'mongoose';
 
 export async function PATCH(
@@ -35,6 +36,10 @@ export async function PATCH(
       { $set: { isActive } },
       { new: true }
     ).lean();
+
+    if (existing.userId) {
+      await UserDoc.findByIdAndUpdate(existing.userId, { $set: { isActive } });
+    }
 
     await logActivity({
       instituteId: user.instituteId,

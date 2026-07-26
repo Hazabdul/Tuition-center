@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     }
 
     const institute = await InstituteDoc.findOne({
-      code: instituteCode.toUpperCase(),
+      code: { $regex: new RegExp(`^${instituteCode.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
       deletedAt: null,
     }).lean();
 

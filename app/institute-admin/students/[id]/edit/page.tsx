@@ -22,6 +22,7 @@ interface StudentFormData {
   admissionNumber: string;
   firstName: string;
   lastName: string;
+  fatherName: string;
   dateOfBirth: string;
   gender: string;
   email: string;
@@ -37,7 +38,7 @@ interface StudentFormData {
 }
 
 const EMPTY_FORM: StudentFormData = {
-  studentId: '', admissionNumber: '', firstName: '', lastName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', academicYear: '', emergencyContactName: '', emergencyContactPhone: '', notes: '', username: '', password: '',
+  studentId: '', admissionNumber: '', firstName: '', lastName: '', fatherName: '', dateOfBirth: '', gender: '', email: '', phone: '', altPhone: '', address: '', academicYear: '', emergencyContactName: '', emergencyContactPhone: '', notes: '', username: '', password: '',
 };
 
 function toForm(s: any): StudentFormData {
@@ -46,6 +47,7 @@ function toForm(s: any): StudentFormData {
     admissionNumber: s.admissionNumber || s.admission_number || '',
     firstName: s.firstName || s.first_name || '',
     lastName: s.lastName || s.last_name || '',
+    fatherName: s.fatherName || s.father_name || '',
     dateOfBirth: (s.dateOfBirth || s.date_of_birth) ? (s.dateOfBirth || s.date_of_birth).split('T')[0] : '',
     gender: s.gender || '',
     email: s.email || '',
@@ -132,6 +134,7 @@ export default function EditStudentPage() {
                 <div className="space-y-1.5"><Label>Admission Number *</Label><Input value={form.admissionNumber} onChange={(e) => set('admissionNumber', e.target.value)} required /></div>
                 <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.firstName} onChange={(e) => set('firstName', e.target.value)} required /></div>
                 <div className="space-y-1.5"><Label>Last Name</Label><Input value={form.lastName} onChange={(e) => set('lastName', e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Father / Guardian Name</Label><Input value={form.fatherName} onChange={(e) => set('fatherName', e.target.value)} placeholder="Father's Full Name" /></div>
                 <div className="space-y-1.5"><Label>Date of Birth</Label><Input type="date" value={form.dateOfBirth} onChange={(e) => set('dateOfBirth', e.target.value)} /></div>
                 <div className="space-y-1.5">
                   <Label>Gender</Label>
