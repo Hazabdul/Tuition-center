@@ -1,24 +1,27 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import AttendanceDoc from '@/models/Attendance';
+import StudentDoc from '@/models/Student';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
 
-    // Find student ID linked to this user
-    let studentId = user.studentId;
-    if (!studentId) {
-      const { data: student } = await supabase
-        .from('students')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      studentId = student?.id;
+    await dbConnect();
+
+    let studentObjId: mongoose.Types.ObjectId | null = null;
+    if (user.studentId && mongoose.Types.ObjectId.isValid(user.studentId)) {
+      studentObjId = new mongoose.Types.ObjectId(user.studentId);
+    } else {
+      const student = await StudentDoc.findOne({ userId: user.id }).select('_id').lean();
+      if (student) studentObjId = student._id as mongoose.Types.ObjectId;
     }
 
-    if (!studentId) {
+    if (!studentObjId) {
       return apiSuccess({
         total_days: 0,
         present_days: 0,
@@ -29,17 +32,13 @@ export async function GET(request: NextRequest) {
       }, 'No student profile linked');
     }
 
-    const { data: records } = await supabase
-      .from('attendance')
-      .select('status')
-      .eq('student_id', studentId);
+    const records = await AttendanceDoc.find({ studentId: studentObjId }).select('status').lean();
 
-    const list = records || [];
-    const present_days = list.filter(r => r.status === 'present').length;
-    const absent_days = list.filter(r => r.status === 'absent').length;
-    const late_days = list.filter(r => r.status === 'late').length;
-    const leave_days = list.filter(r => r.status === 'leave').length;
-    const total_days = list.length;
+    const present_days = records.filter((r) => r.status === 'present').length;
+    const absent_days = records.filter((r) => r.status === 'absent').length;
+    const late_days = records.filter((r) => r.status === 'late').length;
+    const leave_days = records.filter((r) => r.status === 'excused').length;
+    const total_days = records.length;
     const attendance_percentage = total_days > 0 ? Math.round((present_days / total_days) * 100) : 0;
 
     return apiSuccess({

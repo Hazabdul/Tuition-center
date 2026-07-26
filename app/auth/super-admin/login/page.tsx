@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Shield, Loader2, KeyRound } from 'lucide-react';
+import { Shield, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -42,7 +42,7 @@ export default function SuperAdminLoginPage() {
 
   function fillDemo() {
     setEmail('superadmin@edumanage.com');
-    setPassword('SuperAdmin@123');
+    setPassword('Password@123');
     toast.info('Filled Super Admin credentials');
   }
 
@@ -74,7 +74,7 @@ export default function SuperAdminLoginPage() {
                 size="sm"
                 variant="outline"
                 onClick={fillDemo}
-                className="h-8 border-blue-500/50 text-blue-400 hover:bg-blue-950 hover:text-blue-300 text-xs"
+                className="h-8 border-blue-500/50 text-blue-400 hover:bg-blue-950 hover:text-blue-300 text-xs cursor-pointer"
               >
                 Auto-fill
               </Button>

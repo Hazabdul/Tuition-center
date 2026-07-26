@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ExamDoc from '@/models/Exam';
+import mongoose from 'mongoose';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   draft: ['scheduled', 'published'],
@@ -9,12 +12,16 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   published: ['draft', 'scheduled', 'completed'],
 };
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin', 'teacher'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid exam id', 400);
 
     const body = await request.json();
     const { status } = body;
@@ -24,12 +31,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return apiError('Invalid status. Must be one of: draft, scheduled, completed, published', 400);
     }
 
-    const { data: existing } = await supabase
-      .from('exams')
-      .select('id, status, name, code')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
+
+    const existing = await ExamDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+    }).lean();
 
     if (!existing) return apiError('Exam not found', 404);
 
@@ -42,14 +49,11 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       return apiError(`Cannot transition from ${existing.status} to ${status}. Valid transitions: ${existing.status} -> ${allowed.join(' -> ')}`, 400);
     }
 
-    const { data: exam, error } = await supabase
-      .from('exams')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', params.id)
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at')
-      .single();
-
-    if (error) return apiError(error.message, 400);
+    const updated = await ExamDoc.findByIdAndUpdate(
+      params.id,
+      { $set: { status } },
+      { new: true }
+    ).lean();
 
     await logActivity({
       instituteId: user.instituteId,
@@ -57,12 +61,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       action: 'exam_status_changed',
       entityType: 'exam',
       entityId: params.id,
-      oldValues: { status: existing.status },
+      oldValues: { status: existing.status } as Record<string, unknown>,
       newValues: { status },
       request,
     });
 
-    return apiSuccess(exam, `Exam status updated to ${status} successfully`);
+    return apiSuccess(
+      { id: updated?._id.toString(), status: updated?.status },
+      `Exam status updated to ${status} successfully`
+    );
   } catch (error) {
     console.error('Exam status error:', error);
     return apiError('An error occurred', 500);

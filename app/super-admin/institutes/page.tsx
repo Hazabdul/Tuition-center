@@ -213,6 +213,9 @@ export default function InstitutesPage() {
               <DropdownMenuItem onClick={() => router.push(`/super-admin/institutes/${row.id}`)}>
                 <Eye className="mr-2 h-4 w-4" /> View Details
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push(`/super-admin/institutes/${row.id}/edit`)}>
+                <Pencil className="mr-2 h-4 w-4" /> Edit Institute
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               {row.status === 'active' ? (
                 <DropdownMenuItem onClick={() => statusMutation.mutate({ id: row.id, status: 'suspended' })}>

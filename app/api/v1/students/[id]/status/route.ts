@@ -1,30 +1,56 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import StudentDoc from '@/models/Student';
+import mongoose from 'mongoose';
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
+    if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid student id', 400);
 
     const body = await request.json();
     const { isActive } = body;
 
-    const { data: existing } = await supabase.from('students').select('is_active').eq('id', params.id).eq('institute_id', user.instituteId).maybeSingle();
+    if (typeof isActive !== 'boolean') return apiError('isActive (boolean) is required', 400);
+
+    await dbConnect();
+
+    const existing = await StudentDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    }).lean();
     if (!existing) return apiError('Student not found', 404);
 
-    const { error } = await supabase
-      .from('students')
-      .update({ is_active: isActive, updated_at: new Date().toISOString() })
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId);
+    const updated = await StudentDoc.findByIdAndUpdate(
+      params.id,
+      { $set: { isActive } },
+      { new: true }
+    ).lean();
 
-    if (error) return apiError(error.message, 400);
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'student_status_changed',
+      entityType: 'student',
+      entityId: params.id,
+      oldValues: { isActive: existing.isActive } as Record<string, unknown>,
+      newValues: { isActive },
+      request,
+    });
 
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'student_status_changed', entityType: 'student', entityId: params.id, oldValues: existing, newValues: { isActive }, request });
-
-    return apiSuccess(null, `Student ${isActive ? 'activated' : 'deactivated'} successfully`);
+    return apiSuccess(
+      { id: updated?._id.toString(), isActive: updated?.isActive },
+      `Student ${isActive ? 'activated' : 'deactivated'} successfully`
+    );
   } catch (error) {
     console.error('Student status error:', error);
     return apiError('An error occurred', 500);

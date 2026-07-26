@@ -1,58 +1,48 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import AttendanceDoc from '@/models/Attendance';
+import mongoose from 'mongoose';
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin', 'teacher'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid attendance id', 400);
 
     const body = await request.json();
     const { status, remarks } = body;
 
-    const validStatuses = ['present', 'absent', 'late', 'leave'];
+    const validStatuses = ['present', 'absent', 'late', 'excused'];
     if (status && !validStatuses.includes(status)) {
-      return apiError('Invalid status. Must be one of: present, absent, late, leave', 400);
+      return apiError('Invalid status. Must be one of: present, absent, late, excused', 400);
     }
 
-    const { data: existing } = await supabase
-      .from('attendance')
-      .select('id, student_id, batch_id, date, status, remarks')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
+
+    const existing = await AttendanceDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+    }).lean();
 
     if (!existing) return apiError('Attendance record not found', 404);
 
-    const oldStatus = existing.status;
-    const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (status) updateData.status = status;
-    if (remarks !== undefined) updateData.remarks = remarks;
-
-    const { data: attendance, error } = await supabase
-      .from('attendance')
-      .update(updateData)
-      .eq('id', params.id)
-      .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at')
-      .single();
-
-    if (error) return apiError(error.message, 400);
-
-    if (status && status !== oldStatus) {
-      await supabase.from('attendance_audit_log').insert({
-        institute_id: user.instituteId,
-        attendance_id: params.id,
-        student_id: existing.student_id,
-        batch_id: existing.batch_id,
-        date: existing.date,
-        old_status: oldStatus,
-        new_status: status,
-        action: 'updated',
-        performed_by: user.id,
-      });
-    }
+    const updated = await AttendanceDoc.findByIdAndUpdate(
+      params.id,
+      {
+        $set: {
+          ...(status && { status }),
+          ...(remarks !== undefined && { remarks }),
+        },
+      },
+      { new: true, runValidators: true }
+    ).lean();
 
     await logActivity({
       instituteId: user.instituteId,
@@ -60,12 +50,15 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       action: 'attendance_updated',
       entityType: 'attendance',
       entityId: params.id,
-      oldValues: existing,
+      oldValues: existing as unknown as Record<string, unknown>,
       newValues: body,
       request,
     });
 
-    return apiSuccess(attendance, 'Attendance updated successfully');
+    return apiSuccess(
+      { id: updated?._id.toString(), status: updated?.status, remarks: updated?.remarks },
+      'Attendance updated successfully'
+    );
   } catch (error) {
     console.error('Update attendance error:', error);
     return apiError('An error occurred', 500);

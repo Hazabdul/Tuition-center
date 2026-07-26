@@ -1,56 +1,56 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ActivityLogDoc from '@/models/ActivityLog';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
 
-    const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '20');
-    const offset = (page - 1) * limit;
-    const action = url.searchParams.get('action') || '';
+    await dbConnect();
 
-    let query = supabase
-      .from('activity_logs')
-      .select('id, institute_id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address, created_at', { count: 'exact' });
+    const { searchParams } = new URL(request.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
+    const action = searchParams.get('action') || '';
 
-    if (user.role === 'super_admin') {
-      if (action) query = query.ilike('action', `%${action}%`);
-    } else {
-      query = query.eq('institute_id', user.instituteId);
-      if (action) query = query.ilike('action', `%${action}%`);
+    const filter: Record<string, unknown> = {};
+
+    if (user.role !== 'super_admin' && user.instituteId) {
+      filter.instituteId = new mongoose.Types.ObjectId(user.instituteId);
     }
+    if (action) filter.action = action;
 
-    const { data, count, error } = await query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const [records, total] = await Promise.all([
+      ActivityLogDoc.find(filter)
+        .populate('userId', '_id firstName lastName role')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ActivityLogDoc.countDocuments(filter),
+    ]);
 
-    if (error) throw error;
-
-    // Fetch user names separately to avoid complex joins
-    const userIds = Array.from(new Set((data || []).map((l: Record<string, unknown>) => l.user_id).filter(Boolean)));
-    let userMap: Record<string, string> = {};
-    if (userIds.length > 0) {
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, first_name, last_name')
-        .in('id', userIds as string[]);
-      userMap = Object.fromEntries((users || []).map((u: Record<string, string>) => [u.id, `${u.first_name} ${u.last_name || ''}`.trim()]));
-    }
-
-    const enriched = (data || []).map((log: Record<string, unknown>) => ({
-      ...log,
-      userName: log.user_id ? (userMap[log.user_id as string] || 'Unknown') : 'System',
+    const data = records.map((a) => ({
+      id: a._id.toString(),
+      instituteId: a.instituteId?.toString() ?? null,
+      userId: a.userId,
+      action: a.action,
+      entityType: a.entityType ?? null,
+      entityId: a.entityId ?? null,
+      ipAddress: a.ipAddress ?? null,
+      createdAt: a.createdAt,
     }));
 
-    return apiSuccess(enriched, 'Activity logs fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    return apiSuccess(data, 'Activity logs fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
-  } catch (err) {
-    console.error(err);
-    return apiError('Failed to fetch activity logs', 500);
+  } catch (error) {
+    console.error('List activity logs error:', error);
+    return apiError('An error occurred', 500);
   }
 }

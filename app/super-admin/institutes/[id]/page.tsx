@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Progress } from '@/components/ui/progress';
 import {
   Building2, Users, GraduationCap, BookOpen, CreditCard, ClipboardList,
-  UserCheck, Sliders, Ban, CheckCircle, ArrowLeft, Mail, Phone, MapPin, Calendar, Award
+  UserCheck, Sliders, Ban, CheckCircle, ArrowLeft, Mail, Phone, MapPin, Calendar, Award, Pencil
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -128,6 +128,14 @@ export default function InstituteDetailsPage() {
 
         {/* Quick Action Controls */}
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/super-admin/institutes/${id}/edit`)}
+            className="border-slate-300 text-slate-700 hover:bg-slate-50 text-xs"
+          >
+            <Pencil className="h-4 w-4 mr-1.5" />
+            Edit Institute
+          </Button>
           <Button
             onClick={() => impersonateMutation.mutate(id)}
             className="bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs"
@@ -382,9 +390,9 @@ export default function InstituteDetailsPage() {
         {/* TAB 6: FINANCIAL LEDGER & FEES */}
         <TabsContent value="fees" className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatCard title="Total Fee Assigned" value={`₹${(data?.feeSummary.totalAssigned || 0).toLocaleString()}`} icon={CreditCard} color="blue" />
-            <StatCard title="Total Collected" value={`₹${(data?.feeSummary.totalCollected || 0).toLocaleString()}`} icon={CreditCard} color="green" />
-            <StatCard title="Pending Balance" value={`₹${(data?.feeSummary.pending || 0).toLocaleString()}`} icon={CreditCard} color="amber" />
+            <StatCard title="Total Fee Assigned" value={`₹${(data?.feeSummary?.totalAssigned || 0).toLocaleString()}`} icon={CreditCard} color="blue" />
+            <StatCard title="Total Collected" value={`₹${(data?.feeSummary?.totalCollected || 0).toLocaleString()}`} icon={CreditCard} color="green" />
+            <StatCard title="Pending Balance" value={`₹${(data?.feeSummary?.pending || 0).toLocaleString()}`} icon={CreditCard} color="amber" />
           </div>
 
           <Card className="border-slate-200 shadow-sm">
@@ -402,14 +410,20 @@ export default function InstituteDetailsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(data?.feeSummary.recentPayments || []).map((pay: any) => (
-                    <TableRow key={pay.id}>
-                      <TableCell className="font-mono text-xs font-semibold text-slate-700">{pay.receipt_number}</TableCell>
-                      <TableCell className="font-bold text-green-700">₹{pay.amount_paid.toLocaleString()}</TableCell>
-                      <TableCell className="text-xs capitalize">{pay.payment_method}</TableCell>
-                      <TableCell className="text-xs text-slate-500">{pay.payment_date}</TableCell>
-                    </TableRow>
-                  ))}
+                  {(data?.feeSummary?.recentPayments || []).map((pay: any) => {
+                    const receiptNum = pay.receipt_number || pay.receiptNumber || 'RCP-N/A';
+                    const amountPaid = pay.amount_paid ?? pay.amountPaid ?? pay.amount ?? 0;
+                    const method = pay.payment_method || pay.paymentMethod || pay.paymentMode || 'online';
+                    const paymentDate = pay.payment_date || pay.paymentDate || 'N/A';
+                    return (
+                      <TableRow key={pay.id || receiptNum}>
+                        <TableCell className="font-mono text-xs font-semibold text-slate-700">{receiptNum}</TableCell>
+                        <TableCell className="font-bold text-green-700">₹{(Number(amountPaid) || 0).toLocaleString()}</TableCell>
+                        <TableCell className="text-xs capitalize">{method}</TableCell>
+                        <TableCell className="text-xs text-slate-500">{paymentDate}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>

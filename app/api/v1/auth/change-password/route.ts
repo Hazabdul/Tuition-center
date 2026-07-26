@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, verifyPassword, hashPassword, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, verifyPassword, hashPassword, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import UserDoc from '@/models/User';
 
 export async function PUT(request: NextRequest) {
   try {
@@ -20,18 +22,16 @@ export async function PUT(request: NextRequest) {
       return apiError('New password must be at least 6 characters', 400);
     }
 
-    const { data: dbUser } = await supabase
-      .from('users')
-      .select('password_hash')
-      .eq('id', user.id)
-      .single();
+    await dbConnect();
 
-    if (!dbUser || !verifyPassword(currentPassword, dbUser.password_hash)) {
+    const dbUser = await UserDoc.findById(user.id).select('passwordHash').lean();
+
+    if (!dbUser || !verifyPassword(currentPassword, dbUser.passwordHash)) {
       return apiError('Current password is incorrect', 400);
     }
 
     const newHash = hashPassword(newPassword);
-    await supabase.from('users').update({ password_hash: newHash, updated_at: new Date().toISOString() }).eq('id', user.id);
+    await UserDoc.findByIdAndUpdate(user.id, { $set: { passwordHash: newHash } });
 
     await logActivity({
       instituteId: user.instituteId,

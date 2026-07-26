@@ -1,46 +1,54 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import FeePaymentDoc from '@/models/FeePayment';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { studentId: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { studentId: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.studentId)) return apiError('Invalid student id', 400);
 
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status') || '';
+    await dbConnect();
 
-    let query = supabase
-      .from('student_fees')
-      .select('id, institute_id, student_id, category_id, structure_id, total_amount, discount_amount, waived_amount, paid_amount, balance_amount, due_date, status, notes, created_at, updated_at, category:fee_categories(id, name, code), structure:fee_structures(id, amount, due_date, academic_year)')
-      .eq('institute_id', user.instituteId)
-      .eq('student_id', params.studentId)
-      .order('created_at', { ascending: false });
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const studentObjId = new mongoose.Types.ObjectId(params.studentId);
 
-    if (status) query = query.eq('status', status);
+    const payments = await FeePaymentDoc.find({
+      instituteId: instituteObjId,
+      studentId: studentObjId,
+      deletedAt: null,
+    })
+      .sort({ createdAt: -1 })
+      .lean();
 
-    const { data, error } = await query;
+    const totalPaid = payments
+      .filter((p) => p.status === 'completed')
+      .reduce((sum, p) => sum + (p.amountPaid || 0), 0);
 
-    if (error) return apiError(error.message, 400);
-
-    const fees = data || [];
-    const totalAmount = fees.reduce((sum, f) => sum + (f.total_amount || 0), 0);
-    const totalPaid = fees.reduce((sum, f) => sum + (f.paid_amount || 0), 0);
-    const totalBalance = fees.reduce((sum, f) => sum + (f.balance_amount || 0), 0);
-    const totalDiscount = fees.reduce((sum, f) => sum + (f.discount_amount || 0), 0);
-    const totalWaived = fees.reduce((sum, f) => sum + (f.waived_amount || 0), 0);
+    const fees = payments.map((p) => ({
+      id: p._id.toString(),
+      receiptNumber: p.receiptNumber,
+      amountPaid: p.amountPaid,
+      paymentDate: p.paymentDate,
+      paymentMode: p.paymentMode,
+      status: p.status,
+      createdAt: p.createdAt,
+    }));
 
     return apiSuccess(
       {
         fees,
         summary: {
           totalFees: fees.length,
-          totalAmount,
           totalPaid,
-          totalBalance,
-          totalDiscount,
-          totalWaived,
+          totalBalance: 0,
         },
       },
       'Student fees fetched'

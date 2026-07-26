@@ -1,48 +1,62 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteSubscriptionDoc from '@/models/InstituteSubscription';
+import SubscriptionPlanDoc from '@/models/SubscriptionPlan';
+import mongoose from 'mongoose';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (user.role !== 'super_admin') return apiError('Insufficient permissions', 403);
 
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid subscription id', 400);
+
     const body = await request.json();
     const { expiryDate, planId } = body;
 
-    const { data: existing } = await supabase
-      .from('institute_subscriptions')
-      .select('id, status, expiry_date, plan_id, institute_id')
-      .eq('id', params.id)
-      .maybeSingle();
+    if (!expiryDate) return apiError('expiryDate is required', 400);
+
+    await dbConnect();
+
+    const existing = await InstituteSubscriptionDoc.findOne({
+      _id: params.id,
+      deletedAt: null,
+    }).lean();
 
     if (!existing) return apiError('Subscription not found', 404);
 
-    const { error } = await supabase
-      .from('institute_subscriptions')
-      .update({
+    const newPlanId = planId && mongoose.Types.ObjectId.isValid(planId)
+      ? new mongoose.Types.ObjectId(planId)
+      : existing.planId;
+
+    if (planId && mongoose.Types.ObjectId.isValid(planId)) {
+      const plan = await SubscriptionPlanDoc.findOne({ _id: planId, deletedAt: null }).lean();
+      if (!plan) return apiError('Plan not found', 404);
+    }
+
+    await InstituteSubscriptionDoc.findByIdAndUpdate(params.id, {
+      $set: {
         status: 'active',
-        expiry_date: expiryDate,
-        plan_id: planId || existing.plan_id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.id);
-
-    if (error) return apiError(error.message, 400);
-
-    await supabase.from('subscription_history').insert({
-      institute_id: existing.institute_id,
-      plan_id: planId || existing.plan_id,
-      action: 'renewed',
-      old_status: existing.status,
-      new_status: 'active',
-      old_expiry: existing.expiry_date,
-      new_expiry: expiryDate,
-      performed_by: user.id,
+        expiryDate: new Date(expiryDate),
+        planId: newPlanId,
+        performedBy: new mongoose.Types.ObjectId(user.id),
+      },
     });
 
-    await logActivity({ userId: user.id, action: 'subscription_renewed', entityType: 'subscription', entityId: params.id, newValues: body, request });
+    await logActivity({
+      userId: user.id,
+      action: 'subscription_renewed',
+      entityType: 'subscription',
+      entityId: params.id,
+      newValues: body,
+      request,
+    });
 
     return apiSuccess(null, 'Subscription renewed successfully');
   } catch (error) {

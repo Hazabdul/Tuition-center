@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ParentDoc from '@/models/Parent';
+import UserDoc from '@/models/User';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,33 +12,63 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
+    const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
-    let query = supabase
-      .from('parents')
-      .select('id, first_name, last_name, email, phone, alt_phone, relationship, occupation, is_active, created_at', { count: 'exact' })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    const filter: Record<string, unknown> = {
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    };
 
     if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { firstName: regex },
+        { lastName: regex },
+        { email: regex },
+        { phone: regex },
+      ];
     }
-    if (status === 'active') query = query.eq('is_active', true);
-    if (status === 'inactive') query = query.eq('is_active', false);
+    if (status === 'active') filter.isActive = true;
+    if (status === 'inactive') filter.isActive = false;
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const sortField: Record<string, 1 | -1> = {
+      [sortBy]: sortOrder === 'asc' ? 1 : -1,
+    };
 
-    const { data, count } = await query;
+    const [records, total] = await Promise.all([
+      ParentDoc.find(filter)
+        .select('_id firstName lastName email phone altPhone relationship occupation isActive createdAt')
+        .sort(sortField)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ParentDoc.countDocuments(filter),
+    ]);
 
-    return apiSuccess(data || [], 'Parents fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    const data = records.map((p) => ({
+      id: p._id.toString(),
+      firstName: p.firstName,
+      lastName: p.lastName ?? null,
+      email: p.email ?? null,
+      phone: p.phone ?? null,
+      altPhone: p.altPhone ?? null,
+      relationship: p.relationship ?? null,
+      occupation: p.occupation ?? null,
+      isActive: p.isActive,
+      createdAt: p.createdAt,
+    }));
+
+    return apiSuccess(data, 'Parents fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List parents error:', error);
@@ -50,49 +84,68 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { firstName, lastName, email, phone, altPhone, address, relationship, occupation, notes, username, password } = body;
+    const {
+      firstName, lastName, email, phone, altPhone,
+      address, relationship, occupation, notes, username, password,
+    } = body;
 
     if (!firstName) return apiError('First name is required', 400);
 
-    let userId: string | null = null;
+    await dbConnect();
+
+    let userId: mongoose.Types.ObjectId | null = null;
+
     if (username && password) {
-      const { data: existingUser } = await supabase.from('users').select('id').eq('institute_id', user.instituteId).eq('username', username).maybeSingle();
+      const existingUser = await UserDoc.findOne({
+        instituteId: new mongoose.Types.ObjectId(user.instituteId),
+        username: username.trim(),
+        deletedAt: null,
+      }).lean();
       if (existingUser) return apiError('Username already exists', 409);
 
-      const { data: newUser, error: userError } = await supabase
-        .from('users')
-        .insert({
-          institute_id: user.instituteId,
-          role: 'parent',
-          username, email, phone,
-          password_hash: hashPassword(password),
-          first_name: firstName, last_name: lastName,
-          is_active: true,
-        })
-        .select('id')
-        .single();
-      if (userError) return apiError(userError.message, 400);
-      userId = newUser.id;
+      const newUser = await UserDoc.create({
+        instituteId: new mongoose.Types.ObjectId(user.instituteId),
+        role: 'parent',
+        username: username.trim(),
+        email: email ? email.toLowerCase().trim() : null,
+        phone: phone || null,
+        passwordHash: hashPassword(password),
+        firstName: firstName.trim(),
+        lastName: lastName?.trim() || null,
+        isActive: true,
+      });
+      userId = newUser._id as mongoose.Types.ObjectId;
     }
 
-    const { data: parent, error } = await supabase
-      .from('parents')
-      .insert({
-        institute_id: user.instituteId,
-        user_id: userId,
-        first_name: firstName, last_name: lastName,
-        email, phone, alt_phone: altPhone,
-        address, relationship, occupation, notes,
-        is_active: true,
-      })
-      .select('id, first_name, last_name')
-      .single();
+    const parent = await ParentDoc.create({
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      userId,
+      firstName: firstName.trim(),
+      lastName: lastName?.trim() || null,
+      email: email ? email.toLowerCase().trim() : null,
+      phone: phone || null,
+      altPhone: altPhone || null,
+      address: address || null,
+      relationship: relationship || null,
+      occupation: occupation || null,
+      notes: notes || null,
+      isActive: true,
+    });
 
-    if (error) return apiError(error.message, 400);
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'parent_created',
+      entityType: 'parent',
+      entityId: parent._id.toString(),
+      newValues: { firstName, lastName, email },
+      request,
+    });
 
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'parent_created', entityType: 'parent', entityId: parent.id, newValues: body, request });
-
-    return apiSuccess(parent, 'Parent created successfully');
+    return apiSuccess(
+      { id: parent._id.toString(), firstName: parent.firstName, lastName: parent.lastName },
+      'Parent created successfully'
+    );
   } catch (error) {
     console.error('Create parent error:', error);
     return apiError('An error occurred', 500);

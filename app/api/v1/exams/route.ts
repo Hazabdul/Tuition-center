@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ExamDoc from '@/models/Exam';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,63 +12,57 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
     const search = searchParams.get('search') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
+    const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     const batchId = searchParams.get('batchId') || searchParams.get('batch_id') || '';
     const status = searchParams.get('status') || '';
 
-    let query = supabase
-      .from('exams')
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code)', { count: 'exact' })
-      .eq('institute_id', user.instituteId);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
 
-    if (batchId) query = query.eq('batch_id', batchId);
-    if (status) query = query.eq('status', status);
+    const filter: Record<string, unknown> = {
+      instituteId: instituteObjId,
+    };
+
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) filter.batchId = new mongoose.Types.ObjectId(batchId);
+    if (status) filter.status = status;
     if (search) {
-      query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ name: regex }, { code: regex }];
     }
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const sortField: Record<string, 1 | -1> = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
-    let data: any[] | null = null;
-    let count: number | null = 0;
-    let error: any = null;
+    const [records, total] = await Promise.all([
+      ExamDoc.find(filter)
+        .populate('batchId', '_id name code')
+        .sort(sortField)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ExamDoc.countDocuments(filter),
+    ]);
 
-    const res = await query;
-    data = res.data as any[] | null;
-    count = res.count;
-    error = res.error;
-
-    if (error) {
-      console.error('Fetch exams database error:', error);
-      let fallbackQuery = supabase
-        .from('exams')
-        .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at', { count: 'exact' })
-        .eq('institute_id', user.instituteId);
-      if (batchId) fallbackQuery = fallbackQuery.eq('batch_id', batchId);
-      if (status) fallbackQuery = fallbackQuery.eq('status', status);
-      if (search) fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
-      fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
-      fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
-
-      const fallbackRes = await fallbackQuery;
-      data = fallbackRes.data as any[] | null;
-      count = fallbackRes.count;
-    }
-
-    // Format output so batch object is always available cleanly
-    const formattedData = (data || []).map((exam: any) => ({
-      ...exam,
-      batch: exam.batches || exam.batch || null,
+    const formattedData = records.map((exam) => ({
+      id: exam._id.toString(),
+      name: exam.name,
+      code: exam.code,
+      academicYear: exam.academicYear ?? null,
+      startDate: exam.startDate ?? null,
+      endDate: exam.endDate ?? null,
+      status: exam.status,
+      batch: exam.batchId,
+      createdAt: exam.createdAt,
     }));
 
     return apiSuccess(formattedData, 'Exams fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List exams error:', error);
@@ -93,59 +91,55 @@ export async function POST(request: NextRequest) {
     if (!batchId || !name) {
       return apiError('Batch ID and exam name are required', 400);
     }
+    if (!mongoose.Types.ObjectId.isValid(batchId)) return apiError('Invalid batch id', 400);
 
-    const { data: batch } = await supabase
-      .from('batches')
-      .select('id')
-      .eq('id', batchId)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const batchObjId = new mongoose.Types.ObjectId(batchId);
+
+    const batch = await BatchDoc.findOne({
+      _id: batchObjId,
+      instituteId: instituteObjId,
+      deletedAt: null,
+    }).lean();
 
     if (!batch) return apiError('Batch not found', 404);
 
-    const { data: existing } = await supabase
-      .from('exams')
-      .select('id')
-      .eq('institute_id', user.instituteId)
-      .ilike('code', code)
-      .maybeSingle();
+    const existingCode = await ExamDoc.findOne({
+      instituteId: instituteObjId,
+      code,
+    }).lean();
 
-    if (existing) return apiError('Exam with this code already exists in the institute', 409);
+    if (existingCode) return apiError('Exam with this code already exists in the institute', 409);
 
-    const { data: exam, error } = await supabase
-      .from('exams')
-      .insert({
-        institute_id: user.instituteId,
-        batch_id: batchId,
-        name,
-        code,
-        academic_year: academicYear || null,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        description: description || null,
-        status: 'draft',
-      })
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at')
-      .single();
-
-    if (error) {
-      if (error.code === '23505') {
-        return apiError('Exam with this code already exists in the institute', 409);
-      }
-      return apiError(error.message, 400);
-    }
+    const exam: any = await ExamDoc.create({
+      instituteId: instituteObjId,
+      batchId: batchObjId,
+      name: name.trim(),
+      code,
+      academicYear: academicYear || null,
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
+      totalMarks: 100,
+      passingMarks: 35,
+      status: 'draft',
+    });
 
     await logActivity({
       instituteId: user.instituteId,
       userId: user.id,
       action: 'exam_created',
       entityType: 'exam',
-      entityId: exam.id,
+      entityId: exam._id.toString(),
       newValues: body,
       request,
     });
 
-    return apiSuccess(exam, 'Exam created successfully');
+    return apiSuccess(
+      { id: exam._id.toString(), name: exam.name, code: exam.code },
+      'Exam created successfully'
+    );
   } catch (error) {
     console.error('Create exam error:', error);
     return apiError('An error occurred', 500);

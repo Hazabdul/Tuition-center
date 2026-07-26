@@ -5,11 +5,12 @@ import {
   rotateRefreshToken,
   signAccessToken,
   signRefreshToken,
-  supabase,
   mapDbUser,
   apiSuccess,
   apiError,
 } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import UserDoc from '@/models/User';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,13 +32,13 @@ export async function POST(request: NextRequest) {
       return apiError('Invalid or expired refresh token', 401);
     }
 
-    const { data: dbUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', payload.userId)
-      .eq('is_active', true)
-      .is('deleted_at', null)
-      .single();
+    await dbConnect();
+
+    const dbUser = await UserDoc.findOne({
+      _id: payload.userId,
+      isActive: true,
+      deletedAt: null,
+    }).lean();
 
     if (!dbUser) {
       return apiError('User not found', 401);
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
       return apiError('Token rotation failed. Please login again.', 401);
     }
 
-    const user = mapDbUser(dbUser);
+    const user = mapDbUser(dbUser as unknown as Record<string, unknown>);
 
     const response = apiSuccess({ user, accessToken: newAccessToken, refreshToken: newRefreshToken }, 'Token refreshed');
     response.headers.append(

@@ -33,13 +33,23 @@ export default function EditInstitutePage() {
 
   useEffect(() => {
     if (data?.data) {
-      const d = data.data;
+      const d = data.data as any;
       setForm({
-        name: d.name || '', email: d.email || '', phone: d.phone || '', altPhone: d.alt_phone || '',
-        address: d.address || '', city: d.city || '', stateRegion: d.state_region || '', country: d.country || 'India',
-        postalCode: d.postal_code || '', contactPersonName: d.contact_person_name || '',
-        contactPersonPhone: d.contact_person_phone || '', contactPersonEmail: d.contact_person_email || '',
-        studentLimit: d.student_limit || 100, teacherLimit: d.teacher_limit || 20, adminLimit: d.admin_limit || 3,
+        name: d.name || '',
+        email: d.email || '',
+        phone: d.phone || '',
+        altPhone: d.altPhone || d.alt_phone || '',
+        address: d.address || '',
+        city: d.city || '',
+        stateRegion: d.stateRegion || d.state_region || '',
+        country: d.country || 'India',
+        postalCode: d.postalCode || d.postal_code || '',
+        contactPersonName: d.contactPersonName || d.contact_person_name || '',
+        contactPersonPhone: d.contactPersonPhone || d.contact_person_phone || '',
+        contactPersonEmail: d.contactPersonEmail || d.contact_person_email || '',
+        studentLimit: d.studentLimit ?? d.student_limit ?? 100,
+        teacherLimit: d.teacherLimit ?? d.teacher_limit ?? 20,
+        adminLimit: d.adminLimit ?? d.admin_limit ?? 3,
         notes: d.notes || '',
       });
     }

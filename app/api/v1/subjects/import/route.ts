@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import SubjectDoc from '@/models/Subject';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,13 +19,15 @@ export async function POST(request: NextRequest) {
       return apiError('Rows array is required', 400);
     }
 
-    const { data: existingSubjects } = await supabase
-      .from('subjects')
-      .select('code')
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    await dbConnect();
 
-    const existingCodeSet = new Set((existingSubjects || []).map(s => s.code?.toLowerCase()));
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const existingSubjects = await SubjectDoc.find(
+      { instituteId: instituteObjId, deletedAt: null },
+      { code: 1 }
+    ).lean();
+    const existingCodeSet = new Set(existingSubjects.map((s) => s.code?.toLowerCase()));
 
     let createdCount = 0;
     const errors: string[] = [];
@@ -30,10 +35,10 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const name = row.name || row.Name || row['Subject Name'];
+      const name = (row.name || row.Name || row['Subject Name'])?.toString().trim();
       let code = (row.code || row.Code || row['Subject Code'] || '').toString().trim().toUpperCase();
-      const description = row.description || row.Description || null;
-      const syllabus = row.syllabus || row.Syllabus || null;
+      const description = (row.description || row.Description || null)?.toString().trim() || null;
+      const syllabus = (row.syllabus || row.Syllabus || null)?.toString().trim() || null;
       const maxMarks = row.maxMarks || row.max_marks || row['Max Marks'] || 100;
       const passingMarks = row.passingMarks || row.passing_marks || row['Passing Marks'] || 40;
 
@@ -52,41 +57,21 @@ export async function POST(request: NextRequest) {
 
       existingCodeSet.add(code.toLowerCase());
 
-      const item: Record<string, unknown> = {
-        institute_id: user.instituteId,
+      toInsert.push({
+        instituteId: instituteObjId,
         name,
         code,
         description,
         syllabus,
-        max_marks: Number(maxMarks) || 100,
-        passing_marks: Number(passingMarks) || 40,
-        is_active: true,
-      };
-
-      toInsert.push(item);
+        maxMarks: Number(maxMarks) || 100,
+        passingMarks: Number(passingMarks) || 40,
+        isActive: true,
+      });
     }
 
     if (toInsert.length > 0) {
-      let { data: inserted, error } = await supabase
-        .from('subjects')
-        .insert(toInsert)
-        .select('id');
-
-      if (error && error.message.includes('syllabus')) {
-        // Fallback without syllabus if column not present on table
-        const fallbackToInsert = toInsert.map(item => {
-          const { syllabus, ...rest } = item;
-          return rest;
-        });
-        const fallbackRes = await supabase.from('subjects').insert(fallbackToInsert).select('id');
-        inserted = fallbackRes.data;
-        error = fallbackRes.error;
-      }
-
-      if (error) {
-        return apiError(error.message, 400);
-      }
-      createdCount = inserted?.length || 0;
+      const inserted = await SubjectDoc.insertMany(toInsert, { ordered: false });
+      createdCount = inserted.length;
     }
 
     await logActivity({

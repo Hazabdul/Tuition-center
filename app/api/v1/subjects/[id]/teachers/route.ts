@@ -1,74 +1,121 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import SubjectDoc from '@/models/Subject';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+// Teacher-Subject linking is modeled as Subject embedded in Batch (teachers array in Batch)
+// For a dedicated teacher ↔ subject relationship, we use Batch.teachers array
+// This endpoint links/unlinks teachers to batches that teach this subject
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid subject id', 400);
 
     const body = await request.json();
-    const { teacherId, teacherIds } = body;
+    const { teacherId, teacherIds, batchId } = body;
     const idsToAssign: string[] = Array.isArray(teacherIds) ? teacherIds : (teacherId ? [teacherId] : []);
-
     if (idsToAssign.length === 0) return apiError('teacherId or teacherIds array is required', 400);
 
-    const { data: subject } = await supabase.from('subjects').select('id').eq('id', params.id).eq('institute_id', user.instituteId).is('deleted_at', null).maybeSingle();
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const subject = await SubjectDoc.findOne({
+      _id: params.id,
+      instituteId: instituteObjId,
+      deletedAt: null,
+    }).lean();
     if (!subject) return apiError('Subject not found', 404);
 
-    const { data: existingLinks } = await supabase
-      .from('teacher_subject')
-      .select('teacher_id')
-      .eq('subject_id', params.id)
-      .in('teacher_id', idsToAssign);
+    const validTeacherObjIds = idsToAssign
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
 
-    const existingSet = new Set(existingLinks?.map(l => l.teacher_id) || []);
-    const newTeacherIds = idsToAssign.filter(tid => !existingSet.has(tid));
+    if (validTeacherObjIds.length === 0) return apiError('No valid teacher IDs provided', 400);
 
-    if (newTeacherIds.length === 0) return apiError('All selected teachers are already linked to this subject', 409);
+    // If a batchId is provided, assign teacher to that batch; otherwise assign to all batches with this subject
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      await BatchDoc.findOneAndUpdate(
+        { _id: batchId, instituteId: instituteObjId },
+        { $addToSet: { teachers: { $each: validTeacherObjIds } } }
+      );
+    } else {
+      await BatchDoc.updateMany(
+        { subjects: new mongoose.Types.ObjectId(params.id), instituteId: instituteObjId },
+        { $addToSet: { teachers: { $each: validTeacherObjIds } } }
+      );
+    }
 
-    const toInsert = newTeacherIds.map(tid => ({
-      teacher_id: tid,
-      subject_id: params.id,
-      institute_id: user.instituteId,
-    }));
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'subject_teachers_linked',
+      entityType: 'subject',
+      entityId: params.id,
+      newValues: { teacherIds: idsToAssign },
+      request,
+    });
 
-    const { error } = await supabase.from('teacher_subject').insert(toInsert);
-    if (error) return apiError(error.message, 400);
-
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'subject_teachers_linked', entityType: 'subject', entityId: params.id, newValues: { teacherIds: newTeacherIds }, request });
-
-    return apiSuccess({ linked: newTeacherIds }, 'Teachers linked to subject successfully');
+    return apiSuccess({ linked: idsToAssign }, 'Teachers linked to subject successfully');
   } catch (error) {
     console.error('Link teacher subject error:', error);
     return apiError('An error occurred', 500);
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid subject id', 400);
 
     const { searchParams } = new URL(request.url);
     const teacherId = searchParams.get('teacherId');
+    const batchId = searchParams.get('batchId');
 
-    if (!teacherId) return apiError('teacherId is required', 400);
+    if (!teacherId || !mongoose.Types.ObjectId.isValid(teacherId)) return apiError('Valid teacherId is required', 400);
 
-    const { error } = await supabase
-      .from('teacher_subject')
-      .delete()
-      .eq('subject_id', params.id)
-      .eq('teacher_id', teacherId)
-      .eq('institute_id', user.instituteId);
+    await dbConnect();
 
-    if (error) return apiError(error.message, 400);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const teacherObjId = new mongoose.Types.ObjectId(teacherId);
 
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'subject_teacher_unlinked', entityType: 'subject', entityId: params.id, newValues: { teacherId }, request });
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      await BatchDoc.findOneAndUpdate(
+        { _id: batchId, instituteId: instituteObjId },
+        { $pull: { teachers: teacherObjId } }
+      );
+    } else {
+      await BatchDoc.updateMany(
+        { subjects: new mongoose.Types.ObjectId(params.id), instituteId: instituteObjId },
+        { $pull: { teachers: teacherObjId } }
+      );
+    }
+
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'subject_teacher_unlinked',
+      entityType: 'subject',
+      entityId: params.id,
+      newValues: { teacherId },
+      request,
+    });
 
     return apiSuccess(null, 'Teacher unlinked from subject successfully');
   } catch (error) {

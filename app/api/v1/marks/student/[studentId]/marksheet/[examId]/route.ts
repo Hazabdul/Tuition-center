@@ -1,6 +1,12 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import StudentDoc from '@/models/Student';
+import ExamDoc from '@/models/Exam';
+import InstituteDoc from '@/models/Institute';
+import MarkDoc from '@/models/Mark';
+import mongoose from 'mongoose';
 
 function calculateGrade(percentage: number): string {
   if (percentage >= 90) return 'A+';
@@ -11,73 +17,68 @@ function calculateGrade(percentage: number): string {
   return 'F';
 }
 
-export async function GET(request: NextRequest, { params }: { params: { studentId: string; examId: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { studentId: string; examId: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.studentId)) return apiError('Invalid student id', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.examId)) return apiError('Invalid exam id', 400);
 
-    const { data: institute } = await supabase
-      .from('institutes')
-      .select('id, name, code, email, phone, address, city, state_region, country, logo_url')
-      .eq('id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
 
-    const { data: student } = await supabase
-      .from('students')
-      .select('id, student_id, admission_number, first_name, last_name, date_of_birth, gender, email, phone, admission_date, academic_year, profile_photo_url')
-      .eq('id', params.studentId)
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
-      .maybeSingle();
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const studentObjId = new mongoose.Types.ObjectId(params.studentId);
+    const examObjId = new mongoose.Types.ObjectId(params.examId);
+
+    const [institute, student, exam, marks] = await Promise.all([
+      InstituteDoc.findOne({ _id: instituteObjId, deletedAt: null }).lean(),
+      StudentDoc.findOne({ _id: studentObjId, instituteId: instituteObjId, deletedAt: null }).lean(),
+      ExamDoc.findOne({ _id: examObjId, instituteId: instituteObjId }).populate('batchId', '_id name code').lean(),
+      MarkDoc.find({ instituteId: instituteObjId, studentId: studentObjId, examId: examObjId })
+        .populate('subjectId', '_id name code')
+        .lean(),
+    ]);
 
     if (!student) return apiError('Student not found', 404);
-
-    const { data: exam } = await supabase
-      .from('exams')
-      .select('id, name, code, academic_year, start_date, end_date, status, batch:batches(id, name, code)')
-      .eq('id', params.examId)
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
-      .maybeSingle();
-
     if (!exam) return apiError('Exam not found', 404);
 
-    const { data: marks } = await supabase
-      .from('marks')
-      .select('id, subject_id, max_marks, obtained_marks, grade, percentage, is_pass, remarks, is_published, created_at, updated_at, subject:subjects(id, name, code)')
-      .eq('institute_id', user.instituteId)
-      .eq('student_id', params.studentId)
-      .eq('exam_id', params.examId)
-      .eq('is_published', true);
+    const marksList = marks.map((m) => ({
+      id: m._id.toString(),
+      subject: m.subjectId,
+      maxMarks: m.maxMarks,
+      obtainedMarks: m.obtainedMarks,
+      grade: m.grade || calculateGrade(m.percentage || 0),
+      percentage: m.percentage,
+      isPass: m.isPass,
+      remarks: m.remarks ?? null,
+    }));
 
-    const marksList = marks || [];
-
-    const totalMaxMarks = marksList.reduce((sum, m) => sum + (m.max_marks || 0), 0);
-    const totalObtainedMarks = marksList.reduce((sum, m) => sum + (m.obtained_marks || 0), 0);
+    const totalMaxMarks = marksList.reduce((sum, m) => sum + (m.maxMarks || 0), 0);
+    const totalObtainedMarks = marksList.reduce((sum, m) => sum + (m.obtainedMarks || 0), 0);
     const overallPercentage = totalMaxMarks > 0
       ? Math.round((totalObtainedMarks / totalMaxMarks) * 10000) / 100
       : 0;
     const overallGrade = calculateGrade(overallPercentage);
-    const allPass = marksList.length > 0 && marksList.every(m => m.is_pass);
-    const subjectsCount = marksList.length;
-    const passedCount = marksList.filter(m => m.is_pass).length;
-    const failedCount = marksList.filter(m => !m.is_pass).length;
+    const allPass = marksList.length > 0 && marksList.every((m) => m.isPass);
 
     return apiSuccess(
       {
-        institute,
-        student,
-        exam,
+        institute: institute ? { id: institute._id.toString(), ...institute } : null,
+        student: { id: student._id.toString(), ...student },
+        exam: { id: exam._id.toString(), ...exam },
         subjects: marksList,
         summary: {
-          totalSubjects: subjectsCount,
+          totalSubjects: marksList.length,
           totalMaxMarks,
           totalObtainedMarks,
           overallPercentage,
           overallGrade,
-          passedSubjects: passedCount,
-          failedSubjects: failedCount,
+          passedSubjects: marksList.filter((m) => m.isPass).length,
+          failedSubjects: marksList.filter((m) => !m.isPass).length,
           result: allPass ? 'PASS' : (marksList.length === 0 ? 'N/A' : 'FAIL'),
         },
       },

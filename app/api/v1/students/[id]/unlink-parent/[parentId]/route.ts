@@ -1,43 +1,40 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ParentDoc from '@/models/Parent';
+import mongoose from 'mongoose';
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string; parentId: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string; parentId: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid student id', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.parentId)) return apiError('Invalid parent id', 400);
 
-    const studentId = params.id;
-    const parentId = params.parentId;
+    await dbConnect();
 
-    const { data: existingLink } = await supabase
-      .from('parent_student')
-      .select('id')
-      .eq('parent_id', parentId)
-      .eq('student_id', studentId)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const studentObjId = new mongoose.Types.ObjectId(params.id);
+    const parentObjId = new mongoose.Types.ObjectId(params.parentId);
 
-    if (!existingLink) return apiError('Link not found', 404);
-
-    const { error } = await supabase
-      .from('parent_student')
-      .delete()
-      .eq('parent_id', parentId)
-      .eq('student_id', studentId)
-      .eq('institute_id', user.instituteId);
-
-    if (error) return apiError(error.message, 400);
+    await ParentDoc.findOneAndUpdate(
+      { _id: parentObjId, instituteId: instituteObjId },
+      { $pull: { children: studentObjId } }
+    );
 
     await logActivity({
       instituteId: user.instituteId,
       userId: user.id,
       action: 'parent_student_unlinked',
       entityType: 'student',
-      entityId: studentId,
-      oldValues: { parentId },
+      entityId: params.id,
+      oldValues: { parentId: params.parentId },
       request,
     });
 

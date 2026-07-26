@@ -1,6 +1,12 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
+import SubscriptionPlanDoc from '@/models/SubscriptionPlan';
+import InstituteSubscriptionDoc from '@/models/InstituteSubscription';
+import UserDoc from '@/models/User';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,115 +22,83 @@ export async function POST(request: NextRequest) {
     if (!adminEmail || !adminPassword) return apiError('Admin email and password are required', 400);
     if (!planId) return apiError('Please select a subscription plan', 400);
 
-    // Auto-generate code if missing
     let instCode = (code || name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)).toUpperCase();
     if (!instCode) instCode = `INST${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const { data: existingCode } = await supabase
-      .from('institutes')
-      .select('id')
-      .eq('code', instCode)
-      .maybeSingle();
+    await dbConnect();
 
+    const existingCode = await InstituteDoc.findOne({ code: instCode }).lean();
     if (existingCode) {
       instCode = `${instCode}${Math.floor(10 + Math.random() * 90)}`;
     }
 
-    // Verify subscription plan
-    const { data: plan } = await supabase
-      .from('subscription_plans')
-      .select('*')
-      .eq('id', planId)
-      .maybeSingle();
+    const plan = mongoose.Types.ObjectId.isValid(planId)
+      ? await SubscriptionPlanDoc.findById(planId).lean()
+      : await SubscriptionPlanDoc.findOne({ code: planId }).lean();
 
-    if (!plan) return apiError('Invalid subscription plan selected', 400);
+    const studentLimit = plan?.studentLimit || 100;
+    const teacherLimit = plan?.teacherLimit || 20;
+    const adminLimit = plan?.adminLimit || 3;
 
     // 1. Create Institute in pending_activation status
-    const { data: institute, error: instError } = await supabase
-      .from('institutes')
-      .insert({
-        name,
-        code: instCode,
-        email: email || adminEmail,
-        phone: phone || contactPersonPhone,
-        address, city, state_region: stateRegion, country: country || 'India',
-        contact_person_name: contactPersonName || `${adminFirstName || ''} ${adminLastName || ''}`.trim(),
-        contact_person_phone: contactPersonPhone || phone,
-        contact_person_email: contactPersonEmail || adminEmail,
-        student_limit: plan.student_limit || 100,
-        teacher_limit: plan.teacher_limit || 20,
-        admin_limit: plan.admin_limit || 3,
-        status: 'pending_activation',
-      })
-      .select('id, name, code, status')
-      .single();
+    const institute: any = await InstituteDoc.create({
+      name,
+      code: instCode,
+      email: email || adminEmail,
+      phone: phone || contactPersonPhone,
+      address, city, stateRegion, country: country || 'India',
+      status: 'pending_activation',
+      studentLimit,
+      teacherLimit,
+      adminLimit,
+    });
 
-    if (instError || !institute) {
-      return apiError(instError?.message || 'Failed to register institute', 400);
-    }
-
-    // 2. Insert Pending Subscription Record
     const today = new Date();
     const futureDate = new Date();
     futureDate.setFullYear(today.getFullYear() + 1);
 
-    await supabase.from('institute_subscriptions').insert({
-      institute_id: institute.id,
-      plan_id: plan.id,
-      status: 'pending_activation',
-      start_date: today.toISOString().split('T')[0],
-      expiry_date: futureDate.toISOString().split('T')[0],
-    });
-
-    await supabase.from('subscription_history').insert({
-      institute_id: institute.id,
-      plan_id: plan.id,
-      action: 'self_registered',
-      new_status: 'pending_activation',
-      notes: 'Institute self-registered online',
-    });
+    // 2. Insert Subscription Record
+    if (plan) {
+      await InstituteSubscriptionDoc.create({
+        instituteId: institute._id,
+        planId: plan._id,
+        status: 'pending_activation',
+        startDate: today,
+        expiryDate: futureDate,
+      });
+    }
 
     // 3. Create Primary Admin User
     const finalUsername = adminUsername || `admin_${instCode.toLowerCase()}`;
     const pwdHash = hashPassword(adminPassword);
 
-    await supabase.from('users').insert({
-      institute_id: institute.id,
+    await UserDoc.create({
+      instituteId: institute._id,
       role: 'institute_admin',
       username: finalUsername,
       email: adminEmail,
-      password_hash: pwdHash,
-      first_name: adminFirstName || contactPersonName || 'Institute',
-      last_name: adminLastName || 'Admin',
+      passwordHash: pwdHash,
+      firstName: adminFirstName || contactPersonName || 'Institute',
+      lastName: adminLastName || 'Admin',
       phone: phone || contactPersonPhone,
-      is_active: false, // Activated when Super Admin approves
+      isActive: false, // Activated when Super Admin approves
     });
 
-    // 4. Seed default grading rules
-    await supabase.from('grading_rules').insert([
-      { institute_id: institute.id, min_percentage: 90, max_percentage: 100, grade: 'A+' },
-      { institute_id: institute.id, min_percentage: 80, max_percentage: 89.99, grade: 'A' },
-      { institute_id: institute.id, min_percentage: 70, max_percentage: 79.99, grade: 'B' },
-      { institute_id: institute.id, min_percentage: 60, max_percentage: 69.99, grade: 'C' },
-      { institute_id: institute.id, min_percentage: 50, max_percentage: 59.99, grade: 'D' },
-      { institute_id: institute.id, min_percentage: 0, max_percentage: 49.99, grade: 'F' },
-    ]);
-
     await logActivity({
-      instituteId: institute.id,
+      instituteId: institute._id.toString(),
       action: 'institute_self_registered',
       entityType: 'institute',
-      entityId: institute.id,
-      newValues: { name, code: instCode, plan: plan.name },
+      entityId: institute._id.toString(),
+      newValues: { name, code: instCode, planName: plan?.name },
       request,
     });
 
     return apiSuccess({
-      instituteId: institute.id,
+      instituteId: institute._id.toString(),
       code: instCode,
       name: institute.name,
       status: 'pending_activation',
-      planName: plan.name,
+      planName: plan?.name,
       adminCredentials: { username: finalUsername, email: adminEmail },
     }, 'Institute registration submitted successfully! Your account is currently pending activation by Super Admin upon subscription plan verification.');
   } catch (error) {

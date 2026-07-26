@@ -1,6 +1,11 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import AnnouncementDoc from '@/models/Announcement';
+import NotificationDoc from '@/models/Notification';
+import StudentDoc from '@/models/Student';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,15 +15,29 @@ export async function GET(request: NextRequest) {
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
-    // Fetch notifications tagged with classroom/batch announcements
-    const { data: list } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('institute_id', instituteId)
-      .order('created_at', { ascending: false })
-      .limit(20);
+    await dbConnect();
 
-    return apiSuccess(list || [], 'Classroom announcements fetched');
+    const announcements = await AnnouncementDoc.find({
+      instituteId: new mongoose.Types.ObjectId(instituteId),
+    })
+      .populate('postedBy', '_id firstName lastName role')
+      .populate('batchId', '_id name code')
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const data = announcements.map((a) => ({
+      id: a._id.toString(),
+      title: a.title,
+      message: a.message,
+      type: a.type,
+      batchId: a.batchId ? (a.batchId as any)._id?.toString() : null,
+      batch: a.batchId,
+      postedBy: a.postedBy,
+      createdAt: a.createdAt,
+    }));
+
+    return apiSuccess(data, 'Classroom announcements fetched');
   } catch (error) {
     console.error('Fetch teacher announcements error:', error);
     return apiError('Failed to fetch announcements', 500);
@@ -42,44 +61,57 @@ export async function POST(request: NextRequest) {
       return apiError('Title and message are required', 400);
     }
 
-    // 1. Fetch all students in target batch
-    let targetUserIds: string[] = [];
+    await dbConnect();
 
-    if (batchId) {
-      const { data: enrolledStudents } = await supabase
-        .from('student_batch')
-        .select('student:students(user_id)')
-        .eq('batch_id', batchId)
-        .eq('institute_id', instituteId);
+    const instituteObjId = new mongoose.Types.ObjectId(instituteId);
 
-      targetUserIds = (enrolledStudents || [])
-        .map((s: any) => s.student?.user_id)
-        .filter(Boolean);
-    }
+    const announcement = await AnnouncementDoc.create({
+      instituteId: instituteObjId,
+      postedBy: new mongoose.Types.ObjectId(user.id),
+      batchId: batchId && mongoose.Types.ObjectId.isValid(batchId)
+        ? new mongoose.Types.ObjectId(batchId)
+        : null,
+      title: title.trim(),
+      message: message.trim(),
+      type: type || 'info',
+    });
 
+    let targetStudentUserIds: mongoose.Types.ObjectId[] = [];
     let broadcastCount = 0;
 
-    if (targetUserIds.length > 0) {
-      for (const uId of targetUserIds) {
-        await supabase.from('notifications').insert({
-          institute_id: instituteId,
-          user_id: uId,
-          title: `📌 ${title}`,
-          message: message,
-          type: type || 'info',
-          is_read: false,
-        });
-        broadcastCount++;
-      }
-    } else {
-      // General announcement to institute
-      await supabase.from('notifications').insert({
-        institute_id: instituteId,
-        user_id: null,
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      const students = await StudentDoc.find({
+        batchId: new mongoose.Types.ObjectId(batchId),
+        instituteId: instituteObjId,
+        deletedAt: null,
+      })
+        .select('userId')
+        .lean();
+
+      targetStudentUserIds = students
+        .map((s) => s.userId as mongoose.Types.ObjectId | undefined)
+        .filter((id): id is mongoose.Types.ObjectId => !!id);
+    }
+
+    if (targetStudentUserIds.length > 0) {
+      const notificationsToInsert = targetStudentUserIds.map((uId) => ({
+        instituteId: instituteObjId,
+        userId: uId,
         title: `📌 ${title}`,
-        message: message,
+        message,
         type: type || 'info',
-        is_read: false,
+        isRead: false,
+      }));
+      await NotificationDoc.insertMany(notificationsToInsert, { ordered: false });
+      broadcastCount = notificationsToInsert.length;
+    } else {
+      await NotificationDoc.create({
+        instituteId: instituteObjId,
+        userId: null,
+        title: `📌 ${title}`,
+        message,
+        type: type || 'info',
+        isRead: false,
       });
       broadcastCount = 1;
     }
@@ -93,7 +125,10 @@ export async function POST(request: NextRequest) {
       request,
     });
 
-    return apiSuccess({ broadcastCount }, `Classroom announcement broadcasted to ${broadcastCount} students!`);
+    return apiSuccess(
+      { broadcastCount, announcementId: announcement._id.toString() },
+      `Classroom announcement broadcasted to ${broadcastCount} students!`
+    );
   } catch (error) {
     console.error('Post teacher announcement error:', error);
     return apiError('Failed to post classroom announcement', 500);

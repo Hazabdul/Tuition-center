@@ -1,6 +1,11 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteSubscriptionDoc from '@/models/InstituteSubscription';
+import InstituteDoc from '@/models/Institute';
+import SubscriptionPlanDoc from '@/models/SubscriptionPlan';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,23 +13,42 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (user.role !== 'super_admin') return apiError('Insufficient permissions', 403);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
     const status = searchParams.get('status') || '';
 
-    let query = supabase
-      .from('institute_subscriptions')
-      .select('id, status, start_date, expiry_date, institute:institutes(id, name, code, status), plan:subscription_plans(id, name, code)', { count: 'exact' })
-      .order('created_at', { ascending: false });
+    const filter: Record<string, unknown> = {
+      deletedAt: null,
+    };
+    if (status) filter.status = status;
 
-    if (status) query = query.eq('status', status);
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const [subs, total] = await Promise.all([
+      InstituteSubscriptionDoc.find(filter)
+        .populate('instituteId', 'id name code status')
+        .populate('planId', 'id name code')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      InstituteSubscriptionDoc.countDocuments(filter),
+    ]);
 
-    const { data, count } = await query;
+    const data = subs.map((s) => ({
+      id: s._id.toString(),
+      status: s.status,
+      startDate: s.startDate,
+      expiryDate: s.expiryDate,
+      institute: s.instituteId,
+      plan: s.planId,
+      createdAt: s.createdAt,
+    }));
 
-    return apiSuccess(data || [], 'Subscriptions fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    return apiSuccess(data, 'Subscriptions fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List subscriptions error:', error);
@@ -42,33 +66,41 @@ export async function POST(request: NextRequest) {
     const { instituteId, planId, startDate, expiryDate, status } = body;
 
     if (!instituteId || !planId) return apiError('Institute and plan are required', 400);
+    if (!mongoose.Types.ObjectId.isValid(instituteId)) return apiError('Invalid instituteId', 400);
+    if (!mongoose.Types.ObjectId.isValid(planId)) return apiError('Invalid planId', 400);
 
-    const { data: sub, error } = await supabase
-      .from('institute_subscriptions')
-      .insert({
-        institute_id: instituteId,
-        plan_id: planId,
-        status: status || 'active',
-        start_date: startDate || new Date().toISOString().split('T')[0],
-        expiry_date: expiryDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      })
-      .select('id')
-      .single();
+    await dbConnect();
 
-    if (error) return apiError(error.message, 400);
+    const [institute, plan] = await Promise.all([
+      InstituteDoc.findOne({ _id: instituteId, deletedAt: null }).lean(),
+      SubscriptionPlanDoc.findOne({ _id: planId, deletedAt: null }).lean(),
+    ]);
 
-    await supabase.from('subscription_history').insert({
-      institute_id: instituteId,
-      plan_id: planId,
-      action: 'assigned',
-      new_status: status || 'active',
-      new_expiry: expiryDate,
-      performed_by: user.id,
+    if (!institute) return apiError('Institute not found', 404);
+    if (!plan) return apiError('Subscription plan not found', 404);
+
+    const defaultExpiry = new Date();
+    defaultExpiry.setFullYear(defaultExpiry.getFullYear() + 1);
+
+    const sub = await InstituteSubscriptionDoc.create({
+      instituteId,
+      planId,
+      status: status || 'active',
+      startDate: startDate ? new Date(startDate) : new Date(),
+      expiryDate: expiryDate ? new Date(expiryDate) : defaultExpiry,
+      performedBy: user.id,
     });
 
-    await logActivity({ userId: user.id, action: 'subscription_assigned', entityType: 'institute', entityId: instituteId, newValues: body, request });
+    await logActivity({
+      userId: user.id,
+      action: 'subscription_assigned',
+      entityType: 'institute',
+      entityId: instituteId,
+      newValues: body,
+      request,
+    });
 
-    return apiSuccess(sub, 'Subscription assigned successfully');
+    return apiSuccess({ id: sub._id.toString() }, 'Subscription assigned successfully');
   } catch (error) {
     console.error('Assign subscription error:', error);
     return apiError('An error occurred', 500);

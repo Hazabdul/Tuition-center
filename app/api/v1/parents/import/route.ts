@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ParentDoc from '@/models/Parent';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,15 +19,17 @@ export async function POST(request: NextRequest) {
       return apiError('Rows array is required', 400);
     }
 
-    let createdCount = 0;
-    const errors: string[] = [];
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
     const toInsert: Record<string, unknown>[] = [];
+    const errors: string[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const firstName = row.firstName || row.first_name || row['First Name'] || row.Name;
       const lastName = row.lastName || row.last_name || row['Last Name'] || '';
-      const email = row.email || row.Email || null;
+      const email = (row.email || row.Email || null)?.toLowerCase?.().trim() || null;
       const phone = row.phone || row.Phone || null;
       const occupation = row.occupation || row.Occupation || null;
       const address = row.address || row.Address || null;
@@ -35,27 +40,21 @@ export async function POST(request: NextRequest) {
       }
 
       toInsert.push({
-        institute_id: user.instituteId,
-        first_name: firstName,
-        last_name: lastName,
+        instituteId: instituteObjId,
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || null,
         email,
         phone,
         occupation,
         address,
-        is_active: true,
+        isActive: true,
       });
     }
 
+    let createdCount = 0;
     if (toInsert.length > 0) {
-      const { data: inserted, error } = await supabase
-        .from('parents')
-        .insert(toInsert)
-        .select('id');
-
-      if (error) {
-        return apiError(error.message, 400);
-      }
-      createdCount = inserted?.length || 0;
+      const inserted = await ParentDoc.insertMany(toInsert, { ordered: false });
+      createdCount = inserted.length;
     }
 
     await logActivity({

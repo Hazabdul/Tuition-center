@@ -1,6 +1,12 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, hashPassword, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import StudentDoc from '@/models/Student';
+import UserDoc from '@/models/User';
+import InstituteDoc from '@/models/Institute';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,44 +14,73 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
     const search = searchParams.get('search') || '';
     const batchId = searchParams.get('batchId') || '';
     const status = searchParams.get('status') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
+    const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
-    let query = supabase
-      .from('students')
-      .select('id, student_id, admission_number, first_name, last_name, email, phone, gender, admission_date, academic_year, is_active, created_at, batches:student_batch(batch:batches(id, name, code))', { count: 'exact' })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const filter: Record<string, unknown> = {
+      instituteId: instituteObjId,
+      deletedAt: null,
+    };
 
     if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%,admission_number.ilike.%${search}%,email.ilike.%${search}%`);
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { firstName: regex },
+        { lastName: regex },
+        { studentId: regex },
+        { admissionNumber: regex },
+        { email: regex },
+      ];
     }
-    if (status === 'active') query = query.eq('is_active', true);
-    if (status === 'inactive') query = query.eq('is_active', false);
+    if (status === 'active') filter.isActive = true;
+    if (status === 'inactive') filter.isActive = false;
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
-
-    const { data, count } = await query;
-
-    let filteredData = data || [];
-    if (batchId) {
-      const { data: batchStudents } = await supabase
-        .from('student_batch')
-        .select('student_id')
-        .eq('batch_id', batchId);
-      const studentIds = new Set(batchStudents?.map(bs => bs.student_id) || []);
-      filteredData = filteredData.filter(s => studentIds.has(s.id));
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      const batch = await BatchDoc.findById(batchId).select('students').lean();
+      if (batch && Array.isArray(batch.students)) {
+        filter._id = { $in: batch.students };
+      }
     }
 
-    return apiSuccess(filteredData, 'Students fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    const sortField: Record<string, 1 | -1> = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+
+    const [records, total] = await Promise.all([
+      StudentDoc.find(filter)
+        .select('_id studentId admissionNumber firstName lastName email phone gender academicYear isActive createdAt')
+        .sort(sortField)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      StudentDoc.countDocuments(filter),
+    ]);
+
+    const data = records.map((s) => ({
+      id: s._id.toString(),
+      studentId: s.studentId,
+      admissionNumber: s.admissionNumber ?? null,
+      firstName: s.firstName,
+      lastName: s.lastName ?? null,
+      email: s.email ?? null,
+      phone: s.phone ?? null,
+      gender: s.gender ?? null,
+      academicYear: s.academicYear ?? null,
+      isActive: s.isActive,
+      createdAt: s.createdAt,
+    }));
+
+    return apiSuccess(data, 'Students fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List students error:', error);
@@ -61,75 +96,110 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { studentId, admissionNumber, firstName, lastName, dateOfBirth, gender, email, phone, altPhone, address, admissionDate, academicYear, batchId, emergencyContactName, emergencyContactPhone, notes, username, password } = body;
+    const {
+      studentId, admissionNumber, firstName, lastName, dateOfBirth, gender,
+      email, phone, altPhone, address, academicYear, batchId,
+      emergencyContactName, emergencyContactPhone, notes, username, password,
+    } = body;
 
-    if (!studentId || !admissionNumber || !firstName) return apiError('Student ID, admission number, and first name are required', 400);
-
-    const { count: studentCount } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
-
-    const { data: institute } = await supabase.from('institutes').select('student_limit').eq('id', user.instituteId).maybeSingle();
-    const studentLimit = (institute as Record<string, unknown> | null)?.student_limit as number | undefined;
-    if (studentLimit !== undefined && studentCount && studentCount >= studentLimit) {
-      return apiError('Student limit reached for this institute', 400);
+    if (!studentId || !firstName) {
+      return apiError('Student ID and first name are required', 400);
     }
 
-    const { data: existingSid } = await supabase.from('students').select('id').eq('institute_id', user.instituteId).eq('student_id', studentId).maybeSingle();
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const [studentCount, institute] = await Promise.all([
+      StudentDoc.countDocuments({ instituteId: instituteObjId, deletedAt: null }),
+      InstituteDoc.findById(instituteObjId).select('studentLimit').lean(),
+    ]);
+
+    const studentLimit = institute?.studentLimit ?? 100;
+    if (studentCount >= studentLimit) {
+      return apiError(`Student limit (${studentLimit}) reached for this institute`, 400);
+    }
+
+    const existingSid = await StudentDoc.findOne({
+      instituteId: instituteObjId,
+      studentId: studentId.trim(),
+      deletedAt: null,
+    }).lean();
     if (existingSid) return apiError('Student ID already exists in this institute', 409);
 
-    const { data: existingAdm } = await supabase.from('students').select('id').eq('institute_id', user.instituteId).eq('admission_number', admissionNumber).maybeSingle();
-    if (existingAdm) return apiError('Admission number already exists in this institute', 409);
+    if (admissionNumber) {
+      const existingAdm = await StudentDoc.findOne({
+        instituteId: instituteObjId,
+        admissionNumber: admissionNumber.trim(),
+        deletedAt: null,
+      }).lean();
+      if (existingAdm) return apiError('Admission number already exists in this institute', 409);
+    }
 
-    let userId: string | null = null;
+    let userId: mongoose.Types.ObjectId | null = null;
     if (username && password) {
-      const { data: existingUser } = await supabase.from('users').select('id').eq('institute_id', user.instituteId).eq('username', username).maybeSingle();
+      const existingUser = await UserDoc.findOne({
+        instituteId: instituteObjId,
+        username: username.trim(),
+        deletedAt: null,
+      }).lean();
       if (existingUser) return apiError('Username already exists', 409);
 
-      const { data: newUser, error: userError } = await supabase
-        .from('users')
-        .insert({
-          institute_id: user.instituteId,
-          role: 'student',
-          username, email, phone, student_id: studentId,
-          password_hash: hashPassword(password),
-          first_name: firstName, last_name: lastName,
-          is_active: true,
-        })
-        .select('id')
-        .single();
-      if (userError) return apiError(userError.message, 400);
-      userId = newUser.id;
+      const newUser = await UserDoc.create({
+        instituteId: instituteObjId,
+        role: 'student',
+        username: username.trim(),
+        email: email ? email.toLowerCase().trim() : null,
+        phone: phone || null,
+        studentId: studentId.trim(),
+        passwordHash: hashPassword(password),
+        firstName: firstName.trim(),
+        lastName: lastName?.trim() || null,
+        isActive: true,
+      });
+      userId = newUser._id as mongoose.Types.ObjectId;
     }
 
-    const { data: student, error } = await supabase
-      .from('students')
-      .insert({
-        institute_id: user.instituteId,
-        user_id: userId,
-        student_id: studentId,
-        admission_number: admissionNumber,
-        first_name: firstName, last_name: lastName,
-        date_of_birth: dateOfBirth, gender, email, phone, alt_phone: altPhone,
-        address, admission_date: admissionDate || new Date().toISOString().split('T')[0],
-        academic_year: academicYear,
-        emergency_contact_name: emergencyContactName, emergency_contact_phone: emergencyContactPhone,
-        notes, is_active: true,
-      })
-      .select('id, student_id, first_name, last_name')
-      .single();
+    const student = await StudentDoc.create({
+      instituteId: instituteObjId,
+      userId,
+      studentId: studentId.trim(),
+      admissionNumber: admissionNumber?.trim() || null,
+      firstName: firstName.trim(),
+      lastName: lastName?.trim() || null,
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+      gender: gender || null,
+      email: email ? email.toLowerCase().trim() : null,
+      phone: phone || null,
+      altPhone: altPhone || null,
+      address: address || null,
+      academicYear: academicYear || null,
+      emergencyContactName: emergencyContactName || null,
+      emergencyContactPhone: emergencyContactPhone || null,
+      notes: notes || null,
+      isActive: true,
+    });
 
-    if (error) return apiError(error.message, 400);
-
-    if (batchId) {
-      await supabase.from('student_batch').insert({ student_id: student.id, batch_id: batchId, institute_id: user.instituteId });
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      await BatchDoc.findByIdAndUpdate(batchId, {
+        $addToSet: { students: student._id },
+      });
     }
 
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'student_created', entityType: 'student', entityId: student.id, newValues: body, request });
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'student_created',
+      entityType: 'student',
+      entityId: student._id.toString(),
+      newValues: { studentId, firstName, lastName },
+      request,
+    });
 
-    return apiSuccess(student, 'Student created successfully');
+    return apiSuccess(
+      { id: student._id.toString(), studentId: student.studentId, firstName: student.firstName, lastName: student.lastName },
+      'Student created successfully'
+    );
   } catch (error) {
     console.error('Create student error:', error);
     return apiError('An error occurred', 500);

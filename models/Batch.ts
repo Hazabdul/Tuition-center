@@ -8,6 +8,9 @@ export interface IBatch extends Document {
   academicYear?: string | null;
   startDate?: Date | null;
   endDate?: Date | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  capacity?: number;
   maxStudents?: number;
   students: mongoose.Types.ObjectId[];
   teachers: mongoose.Types.ObjectId[];
@@ -27,6 +30,9 @@ const BatchSchema = new Schema<IBatch>(
     academicYear: { type: String, default: null },
     startDate: { type: Date, default: null },
     endDate: { type: Date, default: null },
+    startTime: { type: String, default: null },
+    endTime: { type: String, default: null },
+    capacity: { type: Number, default: 50 },
     maxStudents: { type: Number, default: 50 },
     students: [{ type: Schema.Types.ObjectId, ref: 'Student' }],
     teachers: [{ type: Schema.Types.ObjectId, ref: 'Teacher' }],

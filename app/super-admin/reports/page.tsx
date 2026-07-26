@@ -180,7 +180,7 @@ export default function SuperAdminReportsPage() {
                     <div className="text-xs text-slate-400">{t.instituteCode}</div>
                   </TableCell>
                   <TableCell className="text-xs">{t.planName}</TableCell>
-                  <TableCell className="font-semibold text-slate-900">₹{t.amount.toLocaleString()}</TableCell>
+                  <TableCell className="font-semibold text-slate-900">₹{(Number(t.amount) || 0).toLocaleString()}</TableCell>
                   <TableCell className="text-xs text-slate-500">{t.paymentMethod}</TableCell>
                   <TableCell className="text-xs text-slate-500">{t.date}</TableCell>
                   <TableCell>

@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, hashPassword, apiSuccess, apiError, hashToken } from '@/lib/auth';
+import { hashPassword, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import PasswordResetTokenDoc from '@/models/PasswordResetToken';
+import UserDoc from '@/models/User';
 import bcrypt from 'bcryptjs';
 
 export async function POST(request: NextRequest) {
@@ -16,21 +19,21 @@ export async function POST(request: NextRequest) {
       return apiError('Password must be at least 6 characters', 400);
     }
 
-    // Find valid token
-    const { data: tokens } = await supabase
-      .from('password_reset_tokens')
-      .select('id, user_id, token_hash, expires_at, used')
-      .eq('used', false)
-      .gte('expires_at', new Date().toISOString());
+    await dbConnect();
+
+    const tokens = await PasswordResetTokenDoc.find({
+      used: false,
+      expiresAt: { $gte: new Date() },
+    }).lean();
 
     if (!tokens || tokens.length === 0) {
       return apiError('Invalid or expired reset token', 400);
     }
 
-    let matchedToken: { id: string; user_id: string } | null = null;
+    let matchedToken: { _id: unknown; userId: unknown } | null = null;
     for (const t of tokens) {
-      if (bcrypt.compareSync(token, t.token_hash)) {
-        matchedToken = t;
+      if (bcrypt.compareSync(token, t.tokenHash)) {
+        matchedToken = t as { _id: unknown; userId: unknown };
         break;
       }
     }
@@ -39,12 +42,11 @@ export async function POST(request: NextRequest) {
       return apiError('Invalid or expired reset token', 400);
     }
 
-    // Update password
     const newHash = hashPassword(newPassword);
-    await supabase.from('users').update({ password_hash: newHash, updated_at: new Date().toISOString() }).eq('id', matchedToken.user_id);
-
-    // Mark token as used
-    await supabase.from('password_reset_tokens').update({ used: true }).eq('id', matchedToken.id);
+    await Promise.all([
+      UserDoc.findByIdAndUpdate(matchedToken.userId, { $set: { passwordHash: newHash } }),
+      PasswordResetTokenDoc.findByIdAndUpdate(matchedToken._id, { $set: { used: true } }),
+    ]);
 
     return apiSuccess({}, 'Password reset successfully');
   } catch (error) {

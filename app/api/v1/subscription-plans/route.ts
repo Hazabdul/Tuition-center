@@ -1,20 +1,38 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import SubscriptionPlanDoc from '@/models/SubscriptionPlan';
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
 
-    const { data, error } = await supabase
-      .from('subscription_plans')
-      .select('*')
-      .order('monthly_price', { ascending: true });
+    await dbConnect();
 
-    if (error) return apiError(error.message, 400);
+    const plans = await SubscriptionPlanDoc.find({ deletedAt: null })
+      .sort({ monthlyPrice: 1 })
+      .lean();
 
-    return apiSuccess(data || [], 'Subscription plans fetched');
+    const data = plans.map((p) => ({
+      id: p._id.toString(),
+      name: p.name,
+      code: p.code,
+      description: p.description,
+      monthlyPrice: p.monthlyPrice,
+      annualPrice: p.annualPrice,
+      studentLimit: p.studentLimit,
+      teacherLimit: p.teacherLimit,
+      adminLimit: p.adminLimit,
+      trialDurationDays: p.trialDurationDays,
+      features: p.features,
+      status: p.status,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    }));
+
+    return apiSuccess(data, 'Subscription plans fetched');
   } catch (error) {
     console.error('List plans error:', error);
     return apiError('An error occurred', 500);
@@ -28,28 +46,48 @@ export async function POST(request: NextRequest) {
     if (user.role !== 'super_admin') return apiError('Insufficient permissions', 403);
 
     const body = await request.json();
-    const { name, code, description, monthlyPrice, annualPrice, studentLimit, teacherLimit, adminLimit, trialDurationDays, features } = body;
+    const {
+      name, code, description, monthlyPrice, annualPrice,
+      studentLimit, teacherLimit, adminLimit, trialDurationDays, features,
+    } = body;
 
     if (!name || !code) return apiError('Name and code are required', 400);
 
-    const { data: existing } = await supabase.from('subscription_plans').select('id').eq('code', code).maybeSingle();
+    await dbConnect();
+
+    const existing = await SubscriptionPlanDoc.findOne({
+      code: code.toLowerCase().trim(),
+      deletedAt: null,
+    }).lean();
     if (existing) return apiError('Plan code already exists', 409);
 
-    const { data: plan, error } = await supabase
-      .from('subscription_plans')
-      .insert({
-        name, code, description, monthly_price: monthlyPrice || 0, annual_price: annualPrice || 0,
-        student_limit: studentLimit || 50, teacher_limit: teacherLimit || 10, admin_limit: adminLimit || 2,
-        trial_duration_days: trialDurationDays || 14, features, status: 'active',
-      })
-      .select('id, name, code')
-      .single();
+    const plan = await SubscriptionPlanDoc.create({
+      name: name.trim(),
+      code: code.toLowerCase().trim(),
+      description: description || null,
+      monthlyPrice: monthlyPrice || 0,
+      annualPrice: annualPrice || 0,
+      studentLimit: studentLimit || 50,
+      teacherLimit: teacherLimit || 10,
+      adminLimit: adminLimit || 2,
+      trialDurationDays: trialDurationDays || 14,
+      features: features || null,
+      status: 'active',
+    });
 
-    if (error) return apiError(error.message, 400);
+    await logActivity({
+      userId: user.id,
+      action: 'subscription_plan_created',
+      entityType: 'subscription_plan',
+      entityId: plan._id.toString(),
+      newValues: body,
+      request,
+    });
 
-    await logActivity({ userId: user.id, action: 'subscription_plan_created', entityType: 'subscription_plan', entityId: plan.id, newValues: body, request });
-
-    return apiSuccess(plan, 'Subscription plan created');
+    return apiSuccess(
+      { id: plan._id.toString(), name: plan.name, code: plan.code },
+      'Subscription plan created'
+    );
   } catch (error) {
     console.error('Create plan error:', error);
     return apiError('An error occurred', 500);

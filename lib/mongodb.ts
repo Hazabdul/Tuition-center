@@ -1,4 +1,13 @@
 import mongoose from 'mongoose';
+import dns from 'dns';
+
+// Ensure Node's DNS resolver can resolve MongoDB Atlas SRV records
+try {
+  dns.setDefaultResultOrder('ipv4first');
+  dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+} catch {
+  // Ignore if custom DNS resolution is restricted
+}
 
 /**
  * Global is used here to maintain a cached connection across hot reloads

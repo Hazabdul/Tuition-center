@@ -1,12 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import {
-  supabase,
-  getUserFromRequest,
-  apiSuccess,
-  apiError,
-  logActivity,
-} from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
+import InstituteSubscriptionDoc from '@/models/InstituteSubscription';
+import mongoose from 'mongoose';
 
 export async function PATCH(
   request: NextRequest,
@@ -19,49 +17,38 @@ export async function PATCH(
     }
 
     const { id } = await params;
+    if (!mongoose.Types.ObjectId.isValid(id)) return apiError('Invalid institute id', 400);
+
     const body = await request.json();
     const { studentLimit, teacherLimit, adminLimit, extendTrialDays, status } = body;
 
-    const updateData: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-    };
+    await dbConnect();
 
-    if (typeof studentLimit === 'number') updateData.student_limit = studentLimit;
-    if (typeof teacherLimit === 'number') updateData.teacher_limit = teacherLimit;
-    if (typeof adminLimit === 'number') updateData.admin_limit = adminLimit;
-    if (status) updateData.status = status;
+    const updateFields: Record<string, unknown> = {};
+    if (typeof studentLimit === 'number') updateFields.studentLimit = studentLimit;
+    if (typeof teacherLimit === 'number') updateFields.teacherLimit = teacherLimit;
+    if (typeof adminLimit === 'number') updateFields.adminLimit = adminLimit;
+    if (status) updateFields.status = status;
 
-    const { data: institute, error: instErr } = await supabase
-      .from('institutes')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+    const institute = await InstituteDoc.findByIdAndUpdate(
+      id,
+      { $set: updateFields },
+      { new: true }
+    ).lean();
 
-    if (instErr || !institute) {
-      return apiError('Failed to update institute quotas', 400);
-    }
+    if (!institute) return apiError('Failed to update institute quotas', 400);
 
     // Handle trial extension if requested
     if (extendTrialDays && typeof extendTrialDays === 'number') {
-      const { data: sub } = await supabase
-        .from('institute_subscriptions')
-        .select('*')
-        .eq('institute_id', id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+      const sub = await InstituteSubscriptionDoc.findOne({ instituteId: new mongoose.Types.ObjectId(id) })
+        .sort({ createdAt: -1 });
 
-      if (sub) {
-        const curExp = sub.expiry_date ? new Date(sub.expiry_date) : new Date();
-        curExp.setDate(curExp.getDate() + extendTrialDays);
-        await supabase
-          .from('institute_subscriptions')
-          .update({
-            expiry_date: curExp.toISOString().split('T')[0],
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', sub.id);
+      if (sub && sub.expiryDate) {
+        const newExpiry = new Date(sub.expiryDate);
+        newExpiry.setDate(newExpiry.getDate() + extendTrialDays);
+        await InstituteSubscriptionDoc.findByIdAndUpdate(sub._id, {
+          $set: { expiryDate: newExpiry },
+        });
       }
     }
 
@@ -75,7 +62,7 @@ export async function PATCH(
       request,
     });
 
-    return apiSuccess(institute, 'Institute quotas updated successfully');
+    return apiSuccess({ id: institute._id.toString(), ...institute }, 'Institute quotas updated successfully');
   } catch (error) {
     console.error('Quotas update error:', error);
     return apiError('Failed to update quotas', 500);

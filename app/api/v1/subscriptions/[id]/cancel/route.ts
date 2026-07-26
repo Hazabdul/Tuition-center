@@ -1,38 +1,42 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteSubscriptionDoc from '@/models/InstituteSubscription';
+import mongoose from 'mongoose';
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (user.role !== 'super_admin') return apiError('Insufficient permissions', 403);
 
-    const { data: existing } = await supabase
-      .from('institute_subscriptions')
-      .select('id, status, institute_id, plan_id')
-      .eq('id', params.id)
-      .maybeSingle();
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid subscription id', 400);
+
+    await dbConnect();
+
+    const existing = await InstituteSubscriptionDoc.findOne({
+      _id: params.id,
+      deletedAt: null,
+    }).lean();
 
     if (!existing) return apiError('Subscription not found', 404);
+    if (existing.status === 'cancelled') return apiError('Subscription is already cancelled', 400);
 
-    const { error } = await supabase
-      .from('institute_subscriptions')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-      .eq('id', params.id);
-
-    if (error) return apiError(error.message, 400);
-
-    await supabase.from('subscription_history').insert({
-      institute_id: existing.institute_id,
-      plan_id: existing.plan_id,
-      action: 'cancelled',
-      old_status: existing.status,
-      new_status: 'cancelled',
-      performed_by: user.id,
+    await InstituteSubscriptionDoc.findByIdAndUpdate(params.id, {
+      $set: { status: 'cancelled', performedBy: new mongoose.Types.ObjectId(user.id) },
     });
 
-    await logActivity({ userId: user.id, action: 'subscription_cancelled', entityType: 'subscription', entityId: params.id, request });
+    await logActivity({
+      userId: user.id,
+      action: 'subscription_cancelled',
+      entityType: 'subscription',
+      entityId: params.id,
+      request,
+    });
 
     return apiSuccess(null, 'Subscription cancelled');
   } catch (error) {

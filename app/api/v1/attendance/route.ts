@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import AttendanceDoc from '@/models/Attendance';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,79 +11,58 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const search = searchParams.get('search') || '';
-    const sortBy = searchParams.get('sortBy') || 'date';
-    const sortOrder = searchParams.get('sortOrder') || 'desc';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
     const batchId = searchParams.get('batchId') || searchParams.get('batch_id') || '';
     const date = searchParams.get('date') || '';
     const studentId = searchParams.get('studentId') || searchParams.get('student_id') || '';
     const status = searchParams.get('status') || '';
 
-    let query = supabase
-      .from('attendance')
-      .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at, students(id, first_name, last_name, student_id), batches(id, name, code)', { count: 'exact' })
-      .eq('institute_id', user.instituteId);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
 
-    if (batchId) query = query.eq('batch_id', batchId);
-    if (date) query = query.eq('date', date);
-    if (studentId) query = query.eq('student_id', studentId);
-    if (status) query = query.eq('status', status);
+    const filter: Record<string, unknown> = {
+      instituteId: instituteObjId,
+    };
 
-    if (search) {
-      const { data: matchedStudents } = await supabase
-        .from('students')
-        .select('id')
-        .eq('institute_id', user.instituteId)
-        .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,student_id.ilike.%${search}%`);
-      const matchedIds = (matchedStudents || []).map(s => s.id);
-      if (matchedIds.length > 0) {
-        query = query.in('student_id', matchedIds);
-      } else {
-        return apiSuccess([], 'Attendance fetched', { page, limit, total: 0, totalPages: 1 });
-      }
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) filter.batchId = new mongoose.Types.ObjectId(batchId);
+    if (studentId && mongoose.Types.ObjectId.isValid(studentId)) filter.studentId = new mongoose.Types.ObjectId(studentId);
+    if (status) filter.status = status;
+    if (date) {
+      const d = new Date(date);
+      const start = new Date(d.setHours(0, 0, 0, 0));
+      const end = new Date(d.setHours(23, 59, 59, 999));
+      filter.date = { $gte: start, $lte: end };
     }
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const [records, total] = await Promise.all([
+      AttendanceDoc.find(filter)
+        .populate('studentId', '_id firstName lastName studentId')
+        .populate('batchId', '_id name code')
+        .sort({ date: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AttendanceDoc.countDocuments(filter),
+    ]);
 
-    let data: any[] | null = null;
-    let count: number | null = 0;
-    let error: any = null;
-
-    const res = await query;
-    data = res.data as any[] | null;
-    count = res.count;
-    error = res.error;
-
-    if (error) {
-      console.error('Fetch attendance database error:', error);
-      let fallbackQuery = supabase
-        .from('attendance')
-        .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at', { count: 'exact' })
-        .eq('institute_id', user.instituteId);
-      if (batchId) fallbackQuery = fallbackQuery.eq('batch_id', batchId);
-      if (date) fallbackQuery = fallbackQuery.eq('date', date);
-      if (studentId) fallbackQuery = fallbackQuery.eq('student_id', studentId);
-      if (status) fallbackQuery = fallbackQuery.eq('status', status);
-      fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
-      fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
-
-      const fallbackRes = await fallbackQuery;
-      data = fallbackRes.data as any[] | null;
-      count = fallbackRes.count;
-    }
-
-    const formattedData = (data || []).map((row: any) => ({
-      ...row,
-      student: row.students || row.student || null,
-      batch: row.batches || row.batch || null,
+    const formattedData = records.map((r) => ({
+      id: r._id.toString(),
+      studentId: r.studentId,
+      student: r.studentId,
+      batchId: r.batchId,
+      batch: r.batchId,
+      date: r.date,
+      status: r.status,
+      remarks: r.remarks ?? null,
+      createdAt: r.createdAt,
     }));
 
     return apiSuccess(formattedData, 'Attendance fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List attendance error:', error);
@@ -102,62 +84,36 @@ export async function POST(request: NextRequest) {
       return apiError('Student ID, batch ID, date, and status are required', 400);
     }
 
-    const validStatuses = ['present', 'absent', 'late', 'leave'];
+    const validStatuses = ['present', 'absent', 'late', 'excused'];
     if (!validStatuses.includes(status)) {
-      return apiError('Invalid status. Must be one of: present, absent, late, leave', 400);
+      return apiError('Invalid status. Must be one of: present, absent, late, excused', 400);
     }
 
-    const inputDate = new Date(date);
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    if (inputDate > today) {
-      return apiError('Date cannot be in the future', 400);
-    }
+    await dbConnect();
 
-    const { data: existing } = await supabase
-      .from('attendance')
-      .select('id, status')
-      .eq('institute_id', user.instituteId)
-      .eq('student_id', studentId)
-      .eq('batch_id', batchId)
-      .eq('date', date)
-      .maybeSingle();
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const studentObjId = new mongoose.Types.ObjectId(studentId);
+    const batchObjId = new mongoose.Types.ObjectId(batchId);
+    const attendanceDate = new Date(date);
+
+    const existing = await AttendanceDoc.findOne({
+      instituteId: instituteObjId,
+      studentId: studentObjId,
+      date: attendanceDate,
+    }).lean();
 
     if (existing) {
       return apiError('Attendance already marked for this student on this date', 409);
     }
 
-    const { data: attendance, error } = await supabase
-      .from('attendance')
-      .insert({
-        institute_id: user.instituteId,
-        student_id: studentId,
-        batch_id: batchId,
-        date,
-        status,
-        remarks: remarks || null,
-        marked_by: user.id,
-      })
-      .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at')
-      .single();
-
-    if (error) {
-      if (error.code === '23505') {
-        return apiError('Attendance already marked for this student on this date', 409);
-      }
-      return apiError(error.message, 400);
-    }
-
-    await supabase.from('attendance_audit_log').insert({
-      institute_id: user.instituteId,
-      attendance_id: attendance.id,
-      student_id: studentId,
-      batch_id: batchId,
-      date,
-      old_status: null,
-      new_status: status,
-      action: 'created',
-      performed_by: user.id,
+    const attendance = await AttendanceDoc.create({
+      instituteId: instituteObjId,
+      studentId: studentObjId,
+      batchId: batchObjId,
+      date: attendanceDate,
+      status,
+      remarks: remarks || null,
+      recordedBy: new mongoose.Types.ObjectId(user.id),
     });
 
     await logActivity({
@@ -165,12 +121,15 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       action: 'attendance_marked',
       entityType: 'attendance',
-      entityId: attendance.id,
+      entityId: attendance._id.toString(),
       newValues: { studentId, batchId, date, status, remarks },
       request,
     });
 
-    return apiSuccess(attendance, 'Attendance marked successfully');
+    return apiSuccess(
+      { id: attendance._id.toString(), studentId, batchId, date, status },
+      'Attendance marked successfully'
+    );
   } catch (error) {
     console.error('Create attendance error:', error);
     return apiError('An error occurred', 500);

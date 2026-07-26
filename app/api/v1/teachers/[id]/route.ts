@@ -1,37 +1,55 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import TeacherDoc from '@/models/Teacher';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid teacher id', 400);
 
-    const { data: teacher, error } = await supabase
-      .from('teachers')
-      .select('*')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
-      .maybeSingle();
+    await dbConnect();
 
-    if (error || !teacher) return apiError('Teacher not found', 404);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
 
-    const { data: batches } = await supabase
-      .from('teacher_batch')
-      .select('batch:batches(id, name, code, academic_year)')
-      .eq('teacher_id', params.id);
+    const teacher = await TeacherDoc.findOne({
+      _id: params.id,
+      instituteId: instituteObjId,
+      deletedAt: null,
+    }).lean();
 
-    const { data: subjects } = await supabase
-      .from('teacher_subject')
-      .select('subject:subjects(id, name, code), batch:batches(id, name, code)')
-      .eq('teacher_id', params.id);
+    if (!teacher) return apiError('Teacher not found', 404);
+
+    const linkedBatches = await BatchDoc.find({
+      teachers: new mongoose.Types.ObjectId(params.id),
+      instituteId: instituteObjId,
+      deletedAt: null,
+    })
+      .select('_id name code academicYear')
+      .lean();
 
     return apiSuccess({
-      ...teacher,
-      batches: batches?.map(b => b.batch) || [],
-      subjects: subjects?.map(s => ({ ...s.subject, batch: s.batch })) || [],
+      id: teacher._id.toString(),
+      teacherId: teacher.teacherId,
+      firstName: teacher.firstName,
+      lastName: teacher.lastName ?? null,
+      email: teacher.email ?? null,
+      phone: teacher.phone ?? null,
+      qualification: teacher.qualification ?? null,
+      specialization: teacher.specialization ?? null,
+      joiningDate: teacher.joiningDate ?? null,
+      notes: teacher.notes ?? null,
+      isActive: teacher.isActive,
+      createdAt: teacher.createdAt,
+      batches: linkedBatches.map((b) => ({ id: b._id.toString(), name: b.name, code: b.code })),
     });
   } catch (error) {
     console.error('Get teacher error:', error);
@@ -39,66 +57,112 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid teacher id', 400);
 
     const body = await request.json();
-    const { employeeId, firstName, lastName, email, phone, altPhone, qualification, specialization, joiningDate, address, profilePhotoUrl, notes } = body;
+    const { employeeId, firstName, lastName, email, phone, qualification, specialization, joiningDate, notes } = body;
 
-    const { data: existing } = await supabase.from('teachers').select('*').eq('id', params.id).eq('institute_id', user.instituteId).is('deleted_at', null).maybeSingle();
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const existing = await TeacherDoc.findOne({
+      _id: params.id,
+      instituteId: instituteObjId,
+      deletedAt: null,
+    }).lean();
     if (!existing) return apiError('Teacher not found', 404);
 
-    if (employeeId && employeeId !== (existing as Record<string, unknown>).employee_id) {
-      const { data: existingEmp } = await supabase.from('teachers').select('id').eq('institute_id', user.instituteId).eq('employee_id', employeeId).neq('id', params.id).maybeSingle();
-      if (existingEmp) return apiError('Employee ID already exists in this institute', 409);
+    if (employeeId && employeeId !== existing.teacherId) {
+      const conflict = await TeacherDoc.findOne({
+        instituteId: instituteObjId,
+        teacherId: employeeId.trim(),
+        _id: { $ne: params.id },
+        deletedAt: null,
+      }).lean();
+      if (conflict) return apiError('Employee ID already exists in this institute', 409);
     }
 
-    const { data: teacher, error } = await supabase
-      .from('teachers')
-      .update({
-        employee_id: employeeId, first_name: firstName, last_name: lastName,
-        email, phone, alt_phone: altPhone, qualification, specialization,
-        joining_date: joiningDate, address, profile_photo_url: profilePhotoUrl, notes,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.id)
-      .select('id, employee_id, first_name, last_name')
-      .single();
+    const updated = await TeacherDoc.findByIdAndUpdate(
+      params.id,
+      {
+        $set: {
+          ...(employeeId !== undefined && { teacherId: employeeId.trim() }),
+          ...(firstName !== undefined && { firstName: firstName.trim() }),
+          ...(lastName !== undefined && { lastName: lastName?.trim() || null }),
+          ...(email !== undefined && { email: email?.toLowerCase().trim() || null }),
+          ...(phone !== undefined && { phone: phone || null }),
+          ...(qualification !== undefined && { qualification }),
+          ...(specialization !== undefined && { specialization }),
+          ...(joiningDate !== undefined && { joiningDate: joiningDate ? new Date(joiningDate) : null }),
+          ...(notes !== undefined && { notes }),
+        },
+      },
+      { new: true, runValidators: true }
+    ).lean();
 
-    if (error) return apiError(error.message, 400);
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'teacher_updated',
+      entityType: 'teacher',
+      entityId: params.id,
+      oldValues: existing as unknown as Record<string, unknown>,
+      newValues: body,
+      request,
+    });
 
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'teacher_updated', entityType: 'teacher', entityId: params.id, oldValues: existing, newValues: body, request });
-
-    return apiSuccess(teacher, 'Teacher updated successfully');
+    return apiSuccess(
+      { id: updated?._id.toString(), teacherId: updated?.teacherId, firstName: updated?.firstName, lastName: updated?.lastName },
+      'Teacher updated successfully'
+    );
   } catch (error) {
     console.error('Update teacher error:', error);
     return apiError('An error occurred', 500);
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid teacher id', 400);
 
-    const { data: existing } = await supabase.from('teachers').select('id').eq('id', params.id).eq('institute_id', user.instituteId).is('deleted_at', null).maybeSingle();
+    await dbConnect();
+
+    const existing = await TeacherDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    }).lean();
     if (!existing) return apiError('Teacher not found', 404);
 
-    const { error } = await supabase
-      .from('teachers')
-      .update({ is_active: false, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId);
+    await TeacherDoc.findByIdAndUpdate(params.id, {
+      $set: { isActive: false, deletedAt: new Date() },
+    });
 
-    if (error) return apiError(error.message, 400);
-
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'teacher_deleted', entityType: 'teacher', entityId: params.id, request });
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'teacher_deleted',
+      entityType: 'teacher',
+      entityId: params.id,
+      request,
+    });
 
     return apiSuccess(null, 'Teacher deleted successfully');
   } catch (error) {

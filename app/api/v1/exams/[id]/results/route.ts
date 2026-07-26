@@ -1,30 +1,42 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ExamDoc from '@/models/Exam';
+import MarkDoc from '@/models/Mark';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid exam id', 400);
 
-    const { data: exam, error } = await supabase
-      .from('exams')
-      .select('id, name, code, academic_year, start_date, end_date, status, batch:batches(id, name, code)')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null)
-      .maybeSingle();
+    await dbConnect();
 
-    if (error || !exam) return apiError('Exam not found', 404);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const examObjId = new mongoose.Types.ObjectId(params.id);
 
-    const { data: marks } = await supabase
-      .from('marks')
-      .select('id, student_id, subject_id, max_marks, obtained_marks, grade, percentage, is_pass, remarks, is_published, student:students(id, first_name, last_name, student_id, admission_number), subject:subjects(id, name, code)')
-      .eq('exam_id', params.id)
-      .eq('institute_id', user.instituteId);
+    const exam = await ExamDoc.findOne({
+      _id: examObjId,
+      instituteId: instituteObjId,
+    })
+      .populate('batchId', '_id name code')
+      .lean();
 
-    const marksList = marks || [];
+    if (!exam) return apiError('Exam not found', 404);
+
+    const marks = await MarkDoc.find({
+      examId: examObjId,
+      instituteId: instituteObjId,
+    })
+      .populate('studentId', '_id firstName lastName studentId admissionNumber')
+      .populate('subjectId', '_id name code')
+      .lean();
 
     const studentMap = new Map<string, {
       student: unknown;
@@ -36,11 +48,14 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       allPass: boolean;
     }>();
 
-    for (const mark of marksList) {
-      const studentId = mark.student_id as string;
+    for (const mark of marks) {
+      const st = mark.studentId as any;
+      if (!st || !st._id) continue;
+      const studentId = st._id.toString();
+
       if (!studentMap.has(studentId)) {
         studentMap.set(studentId, {
-          student: mark.student,
+          student: st,
           studentId,
           subjects: [],
           totalMaxMarks: 0,
@@ -51,20 +66,18 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
       const studentEntry = studentMap.get(studentId)!;
       studentEntry.subjects.push({
-        markId: mark.id,
-        subjectId: mark.subject_id,
-        subject: mark.subject,
-        maxMarks: mark.max_marks,
-        obtainedMarks: mark.obtained_marks,
+        markId: mark._id.toString(),
+        subjectId: mark.subjectId,
+        maxMarks: mark.maxMarks,
+        obtainedMarks: mark.obtainedMarks,
         grade: mark.grade,
         percentage: mark.percentage,
-        isPass: mark.is_pass,
+        isPass: mark.isPass,
         remarks: mark.remarks,
-        isPublished: mark.is_published,
       });
-      studentEntry.totalMaxMarks += mark.max_marks || 0;
-      studentEntry.totalObtainedMarks += mark.obtained_marks || 0;
-      if (!mark.is_pass) studentEntry.allPass = false;
+      studentEntry.totalMaxMarks += mark.maxMarks || 0;
+      studentEntry.totalObtainedMarks += mark.obtainedMarks || 0;
+      if (!mark.isPass) studentEntry.allPass = false;
     }
 
     const results = Array.from(studentMap.values()).map((entry) => {
@@ -76,10 +89,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     return apiSuccess(
       {
-        exam,
+        exam: { id: exam._id.toString(), ...exam },
         results,
         totalStudents: results.length,
-        totalSubjects: new Set(marksList.map(m => m.subject_id)).size,
+        totalSubjects: new Set(marks.map((m) => (m.subjectId as any)?._id?.toString() || (m.subjectId as any)?.toString())).size,
       },
       'Exam results fetched successfully'
     );

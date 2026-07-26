@@ -1,23 +1,48 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import FeePaymentDoc from '@/models/FeePayment';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid payment id', 400);
 
-    const { data: payment, error } = await supabase
-      .from('fee_payments')
-      .select('id, institute_id, student_id, student_fee_id, amount_paid, payment_date, payment_method, reference_number, receipt_number, collected_by, is_reversed, notes, created_at, student:students(id, first_name, last_name, student_id, admission_number), student_fee:student_fees(id, total_amount, discount_amount, waived_amount, paid_amount, balance_amount, status, category:fee_categories(id, name, code))')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
 
-    if (error || !payment) return apiError('Payment not found', 404);
+    const payment = await FeePaymentDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    })
+      .populate('studentId', '_id firstName lastName studentId admissionNumber')
+      .populate('recordedBy', '_id firstName lastName')
+      .lean();
 
-    return apiSuccess(payment, 'Payment fetched successfully');
+    if (!payment) return apiError('Payment not found', 404);
+
+    return apiSuccess({
+      id: payment._id.toString(),
+      instituteId: payment.instituteId.toString(),
+      studentId: payment.studentId,
+      batchId: payment.batchId?.toString() ?? null,
+      receiptNumber: payment.receiptNumber,
+      amountPaid: payment.amountPaid,
+      paymentDate: payment.paymentDate,
+      paymentMode: payment.paymentMode,
+      transactionId: payment.transactionId ?? null,
+      notes: payment.notes ?? null,
+      status: payment.status,
+      recordedBy: payment.recordedBy,
+      createdAt: payment.createdAt,
+    }, 'Payment fetched successfully');
   } catch (error) {
     console.error('Get payment error:', error);
     return apiError('An error occurred', 500);

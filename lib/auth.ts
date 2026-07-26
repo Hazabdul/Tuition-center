@@ -177,27 +177,6 @@ export async function getCurrentUser(): Promise<User | null> {
   return mapDbUser(data as unknown as Record<string, unknown>);
 }
 
-// Backwards compatibility chainable mock for routes being migrated to Mongoose
-const chainableMock: any = {
-  select: () => chainableMock,
-  insert: () => chainableMock,
-  update: () => chainableMock,
-  delete: () => chainableMock,
-  eq: () => chainableMock,
-  neq: () => chainableMock,
-  in: () => chainableMock,
-  or: () => chainableMock,
-  is: () => chainableMock,
-  order: () => chainableMock,
-  limit: () => chainableMock,
-  single: async () => ({ data: null, error: null }),
-  maybeSingle: async () => ({ data: null, error: null }),
-  then: (resolve: any) => resolve({ data: [], error: null }),
-};
-
-export const supabase = {
-  from: (_table: string) => chainableMock,
-};
 
 export function mapDbUser(data: Record<string, unknown>): User {
   return {

@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, revokeAllUserTokens, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, revokeAllUserTokens, apiSuccess, apiError, logActivity } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,6 +24,10 @@ export async function POST(request: NextRequest) {
     response.headers.append(
       'Set-Cookie',
       'refresh_token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax'
+    );
+    response.headers.append(
+      'Set-Cookie',
+      'access_token=; Path=/; Max-Age=0; SameSite=Lax'
     );
 
     return response;

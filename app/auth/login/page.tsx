@@ -11,11 +11,11 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 
 const DEMO_ACCOUNTS = [
-  { label: 'Super Admin', code: 'SUPER', user: 'superadmin', icon: KeyRound, color: 'bg-red-100 text-red-700 border-red-200' },
-  { label: 'Admin', code: 'APEX01', user: 'admin', icon: UserCheck, color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  { label: 'Teacher', code: 'APEX01', user: 'teacher_physics', icon: BookOpen, color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  { label: 'Student', code: 'APEX01', user: 'aarav', icon: GraduationCap, color: 'bg-green-100 text-green-700 border-green-200' },
-  { label: 'Parent', code: 'APEX01', user: 'parent_suresh', icon: Users, color: 'bg-amber-100 text-amber-700 border-amber-200' },
+  { label: 'Super Admin', code: 'SUPER', user: 'superadmin', icon: KeyRound, color: 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200' },
+  { label: 'Institute Admin', code: 'APEX', user: 'apex_admin', icon: UserCheck, color: 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200' },
+  { label: 'Teacher', code: 'APEX', user: 'teacher_physics', icon: BookOpen, color: 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200' },
+  { label: 'Student', code: 'APEX', user: 'rahul_kumar', icon: GraduationCap, color: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' },
+  { label: 'Parent', code: 'APEX', user: 'vikram_kumar', icon: Users, color: 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200' },
 ];
 
 export default function LoginPage() {
@@ -50,6 +50,10 @@ export default function LoginPage() {
   }
 
   function fillDemo(code: string, user: string) {
+    if (code === 'SUPER') {
+      window.location.href = '/auth/super-admin/login';
+      return;
+    }
     setInstituteCode(code);
     setIdentifier(user);
     setPassword('Password@123');
@@ -89,7 +93,7 @@ export default function LoginPage() {
                       key={acc.label}
                       type="button"
                       onClick={() => fillDemo(acc.code, acc.user)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border transition-all hover:scale-[1.02] text-left ${acc.color}`}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border transition-all hover:scale-[1.02] text-left cursor-pointer ${acc.color}`}
                     >
                       <Icon className="h-3.5 w-3.5 flex-shrink-0" />
                       <span>{acc.label}</span>
@@ -106,7 +110,7 @@ export default function LoginPage() {
                   id="instituteCode"
                   value={instituteCode}
                   onChange={e => setInstituteCode(e.target.value)}
-                  placeholder="e.g. APEX01"
+                  placeholder="e.g. APEX"
                   required
                   className="uppercase"
                 />
@@ -117,7 +121,7 @@ export default function LoginPage() {
                   id="identifier"
                   value={identifier}
                   onChange={e => setIdentifier(e.target.value)}
-                  placeholder="e.g. admin, teacher_physics, aarav"
+                  placeholder="e.g. apex_admin, teacher_physics, rahul_kumar"
                   required
                 />
               </div>

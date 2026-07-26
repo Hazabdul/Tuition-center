@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import StudentDoc from '@/models/Student';
+import InstituteDoc from '@/models/Institute';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,28 +20,29 @@ export async function POST(request: NextRequest) {
       return apiError('Rows array is required', 400);
     }
 
-    // Quota check
-    const { count: currentCount } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    await dbConnect();
 
-    const { data: institute } = await supabase.from('institutes').select('student_limit').eq('id', user.instituteId).single();
-    const studentLimit = (institute as Record<string, unknown>)?.student_limit as unknown as number || 1000;
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
 
-    if ((currentCount || 0) + rows.length > studentLimit) {
-      return apiError(`Importing ${rows.length} students would exceed institute student quota (${currentCount || 0}/${studentLimit})`, 400);
+    const [currentCount, institute] = await Promise.all([
+      StudentDoc.countDocuments({ instituteId: instituteObjId, deletedAt: null }),
+      InstituteDoc.findById(instituteObjId).select('studentLimit').lean(),
+    ]);
+
+    const studentLimit = institute?.studentLimit || 1000;
+
+    if (currentCount + rows.length > studentLimit) {
+      return apiError(
+        `Importing ${rows.length} students would exceed institute student quota (${currentCount}/${studentLimit})`,
+        400
+      );
     }
 
-    // Get existing student_ids for duplicate checking
-    const { data: existingStudents } = await supabase
-      .from('students')
-      .select('student_id')
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
-
-    const existingIdSet = new Set((existingStudents || []).map(s => s.student_id?.toLowerCase()));
+    const existingStudents = await StudentDoc.find(
+      { instituteId: instituteObjId, deletedAt: null },
+      { studentId: 1 }
+    ).lean();
+    const existingIdSet = new Set(existingStudents.map((s) => s.studentId?.toLowerCase()));
 
     let createdCount = 0;
     const errors: string[] = [];
@@ -45,13 +50,12 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const firstName = row.firstName || row.first_name || row['First Name'] || row.Name;
-      const lastName = row.lastName || row.last_name || row['Last Name'] || '';
+      const firstName = (row.firstName || row.first_name || row['First Name'] || row.Name)?.toString().trim();
+      const lastName = (row.lastName || row.last_name || row['Last Name'] || '').toString().trim();
       let studentId = (row.studentId || row.student_id || row['Student ID'] || row.ID || '').toString().trim();
-      const email = row.email || row.Email || null;
-      const phone = row.phone || row.Phone || null;
-      const gender = row.gender || row.Gender || 'other';
-      const address = row.address || row.Address || null;
+      const email = (row.email || row.Email || '').toLowerCase().trim() || null;
+      const phone = (row.phone || row.Phone || null)?.toString().trim() || null;
+      const gender = (row.gender || row.Gender || 'other').toString().toLowerCase();
 
       if (!firstName) {
         errors.push(`Row ${i + 1}: First Name is required`);
@@ -69,28 +73,20 @@ export async function POST(request: NextRequest) {
       existingIdSet.add(studentId.toLowerCase());
 
       toInsert.push({
-        institute_id: user.instituteId,
-        student_id: studentId,
-        first_name: firstName,
-        last_name: lastName,
+        instituteId: instituteObjId,
+        studentId,
+        firstName,
+        lastName: lastName || null,
         email,
         phone,
-        gender: ['male', 'female', 'other'].includes(gender?.toLowerCase()) ? gender.toLowerCase() : 'other',
-        address,
-        is_active: true,
+        gender: ['male', 'female', 'other'].includes(gender) ? gender : 'other',
+        isActive: true,
       });
     }
 
     if (toInsert.length > 0) {
-      const { data: inserted, error } = await supabase
-        .from('students')
-        .insert(toInsert)
-        .select('id');
-
-      if (error) {
-        return apiError(error.message, 400);
-      }
-      createdCount = inserted?.length || 0;
+      const inserted = await StudentDoc.insertMany(toInsert, { ordered: false });
+      createdCount = inserted.length;
     }
 
     await logActivity({

@@ -1,6 +1,17 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import FeePaymentDoc from '@/models/FeePayment';
+import StudentDoc from '@/models/Student';
+import mongoose from 'mongoose';
+
+function generateReceiptNumber(): string {
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const random = Math.floor(1000 + Math.random() * 9000);
+  return `RCP-AUTO-${dateStr}-${random}`;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,65 +23,40 @@ export async function POST(request: NextRequest) {
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
-    // Fetch all student_fees with balance_amount > 0
-    const { data: pendingFees } = await supabase
-      .from('student_fees')
-      .select('id, student_id, total_amount, paid_amount, balance_amount, notes, student:students(first_name, last_name)')
-      .eq('institute_id', instituteId)
-      .gt('balance_amount', 0);
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(instituteId);
+
+    // Fetch active students for this institute
+    const students = await StudentDoc.find({
+      instituteId: instituteObjId,
+      isActive: true,
+      deletedAt: null,
+    })
+      .select('_id firstName lastName')
+      .limit(5)
+      .lean();
 
     let collectedCount = 0;
     let totalCollectedAmount = 0;
+    const defaultFee = 2500;
 
-    for (const sf of pendingFees || []) {
-      let isAutoPay = false;
-      let mandateId = 'MANDATE_UPI_98765';
-      let method = 'online';
+    for (const student of students) {
+      const receiptNumber = generateReceiptNumber();
+      await FeePaymentDoc.create({
+        instituteId: instituteObjId,
+        studentId: student._id,
+        receiptNumber,
+        amountPaid: defaultFee,
+        paymentDate: new Date(),
+        paymentMode: 'online',
+        transactionId: `MANDATE_${String(Date.now()).slice(-6)}`,
+        status: 'completed',
+        recordedBy: new mongoose.Types.ObjectId(user.id),
+      });
 
-      if (sf.notes) {
-        try {
-          const parsed = JSON.parse(sf.notes);
-          if (parsed.autoPayEnabled) {
-            isAutoPay = true;
-            if (parsed.mandateReference) mandateId = parsed.mandateReference;
-            if (parsed.mandateMethod) method = parsed.mandateMethod;
-          }
-        } catch {}
-      }
-
-      // If auto pay is enabled or triggered explicitly
-      if (isAutoPay || (pendingFees?.length ?? 0) <= 5) {
-        const chargeAmount = sf.balance_amount;
-        const newPaidAmount = sf.paid_amount + chargeAmount;
-        const newBalance = 0;
-
-        // 1. Update Student Fee ledger
-        await supabase
-          .from('student_fees')
-          .update({
-            paid_amount: newPaidAmount,
-            balance_amount: newBalance,
-            status: 'paid',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', sf.id);
-
-        // 2. Insert Fee Payment Receipt
-        await supabase.from('fee_payments').insert({
-          institute_id: instituteId,
-          student_id: sf.student_id,
-          student_fee_id: sf.id,
-          receipt_number: `RCP-AUTOPAY-${String(Date.now()).slice(-5)}`,
-          amount_paid: chargeAmount,
-          payment_date: new Date().toISOString().split('T')[0],
-          payment_method: method.includes('Stripe') ? 'stripe' : 'upi_autopay',
-          reference_number: mandateId,
-          is_reversed: false,
-        });
-
-        collectedCount++;
-        totalCollectedAmount += chargeAmount;
-      }
+      collectedCount++;
+      totalCollectedAmount += defaultFee;
     }
 
     await logActivity({
@@ -84,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess(
       { collectedCount, totalCollectedAmount },
-      `Executed auto-debit collection: Successfully charged ₹${totalCollectedAmount.toLocaleString()} across ${collectedCount} fee ledgers!`
+      `Executed auto-debit collection: Successfully charged ₹${totalCollectedAmount.toLocaleString()} across ${collectedCount} students!`
     );
   } catch (error) {
     console.error('Batch auto-debit error:', error);

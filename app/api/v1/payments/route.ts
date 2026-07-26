@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import FeePaymentDoc from '@/models/FeePayment';
+import StudentDoc from '@/models/Student';
+import mongoose from 'mongoose';
 
 function generateReceiptNumber(): string {
   const now = new Date();
@@ -15,11 +19,13 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const search = searchParams.get('search') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
+    const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     const studentId = searchParams.get('studentId') || '';
     const method = searchParams.get('method') || '';
@@ -27,28 +33,54 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate') || '';
     const isReversed = searchParams.get('isReversed');
 
-    let query = supabase
-      .from('fee_payments')
-      .select('id, institute_id, student_id, student_fee_id, amount_paid, payment_date, payment_method, reference_number, receipt_number, collected_by, is_reversed, notes, created_at, student:students(id, first_name, last_name, student_id, admission_number), student_fee:student_fees(id, total_amount, paid_amount, balance_amount, status)', { count: 'exact' })
-      .eq('institute_id', user.instituteId);
+    const filter: Record<string, unknown> = {
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    };
 
-    if (studentId) query = query.eq('student_id', studentId);
-    if (method) query = query.eq('payment_method', method);
-    if (startDate) query = query.gte('payment_date', startDate);
-    if (endDate) query = query.lte('payment_date', endDate);
-    if (isReversed === 'true') query = query.eq('is_reversed', true);
-    if (isReversed === 'false') query = query.eq('is_reversed', false);
-    if (search) {
-      query = query.or(`receipt_number.ilike.%${search}%,reference_number.ilike.%${search}%`);
+    if (studentId && mongoose.Types.ObjectId.isValid(studentId)) {
+      filter.studentId = new mongoose.Types.ObjectId(studentId);
     }
+    if (method) filter.paymentMode = method;
+    if (startDate || endDate) {
+      const dateFilter: Record<string, unknown> = {};
+      if (startDate) dateFilter.$gte = new Date(startDate);
+      if (endDate) dateFilter.$lte = new Date(endDate);
+      filter.paymentDate = dateFilter;
+    }
+    if (isReversed === 'true') filter.status = 'reversed';
+    if (isReversed === 'false') filter.status = { $ne: 'reversed' };
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const sortField: Record<string, 1 | -1> = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
-    const { data, count } = await query;
+    const [records, total] = await Promise.all([
+      FeePaymentDoc.find(filter)
+        .populate('studentId', '_id firstName lastName studentId admissionNumber')
+        .sort(sortField)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      FeePaymentDoc.countDocuments(filter),
+    ]);
 
-    return apiSuccess(data || [], 'Payments fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    const data = records.map((p) => ({
+      id: p._id.toString(),
+      instituteId: p.instituteId.toString(),
+      studentId: p.studentId,
+      batchId: p.batchId?.toString() ?? null,
+      receiptNumber: p.receiptNumber,
+      amountPaid: p.amountPaid,
+      paymentDate: p.paymentDate,
+      paymentMode: p.paymentMode,
+      transactionId: p.transactionId ?? null,
+      notes: p.notes ?? null,
+      status: p.status,
+      recordedBy: p.recordedBy?.toString() ?? null,
+      createdAt: p.createdAt,
+    }));
+
+    return apiSuccess(data, 'Payments fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List payments error:', error);
@@ -64,79 +96,47 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { studentId, studentFeeId, amountPaid, paymentDate, paymentMethod, referenceNumber, notes } = body;
+    const { studentId, batchId, amountPaid, paymentDate, paymentMode, transactionId, notes } = body;
 
-    if (!studentId || !studentFeeId || !amountPaid || !paymentMethod) {
-      return apiError('Student ID, student fee ID, amount paid, and payment method are required', 400);
+    if (!studentId || !amountPaid || !paymentMode) {
+      return apiError('Student ID, amount paid, and payment mode are required', 400);
+    }
+    if (Number(amountPaid) <= 0) return apiError('Amount paid must be greater than 0', 400);
+
+    const validModes = ['cash', 'card', 'online', 'cheque', 'bank_transfer'];
+    if (!validModes.includes(paymentMode)) {
+      return apiError(`Invalid payment mode. Must be one of: ${validModes.join(', ')}`, 400);
     }
 
-    if (amountPaid <= 0) return apiError('Amount paid must be greater than 0', 400);
+    if (!mongoose.Types.ObjectId.isValid(studentId)) return apiError('Invalid studentId', 400);
 
-    const validMethods = ['cash', 'cheque', 'card', 'bank_transfer', 'upi', 'online', 'other'];
-    if (!validMethods.includes(paymentMethod)) {
-      return apiError('Invalid payment method', 400);
-    }
+    await dbConnect();
 
-    const { data: studentFee, error: feeError } = await supabase
-      .from('student_fees')
-      .select('id, total_amount, discount_amount, waived_amount, paid_amount, balance_amount, status')
-      .eq('id', studentFeeId)
-      .eq('institute_id', user.instituteId)
-      .eq('student_id', studentId)
-      .maybeSingle();
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
 
-    if (feeError || !studentFee) return apiError('Student fee record not found', 404);
-
-    if (studentFee.status === 'paid') return apiError('This fee is already fully paid', 400);
-
-    if (amountPaid > studentFee.balance_amount) {
-      return apiError(`Amount paid exceeds balance amount of ${studentFee.balance_amount}`, 400);
-    }
-
-    const newPaidAmount = studentFee.paid_amount + amountPaid;
-    const newBalance = studentFee.balance_amount - amountPaid;
-    let newStatus = 'unpaid';
-    if (newBalance <= 0) newStatus = 'paid';
-    else if (newPaidAmount > 0) newStatus = 'partial';
+    const student = await StudentDoc.findOne({
+      _id: studentId,
+      instituteId: instituteObjId,
+      deletedAt: null,
+    }).lean();
+    if (!student) return apiError('Student not found', 404);
 
     const receiptNumber = generateReceiptNumber();
 
-    const { data: payment, error: paymentError } = await supabase
-      .from('fee_payments')
-      .insert({
-        institute_id: user.instituteId,
-        student_id: studentId,
-        student_fee_id: studentFeeId,
-        amount_paid: amountPaid,
-        payment_date: paymentDate || new Date().toISOString().split('T')[0],
-        payment_method: paymentMethod,
-        reference_number: referenceNumber || null,
-        receipt_number: receiptNumber,
-        collected_by: user.id,
-        is_reversed: false,
-        notes: notes || null,
-      })
-      .select('id, institute_id, student_id, student_fee_id, amount_paid, payment_date, payment_method, reference_number, receipt_number, collected_by, is_reversed, notes, created_at')
-      .single();
-
-    if (paymentError) return apiError(paymentError.message, 400);
-
-    await supabase
-      .from('student_fees')
-      .update({
-        paid_amount: newPaidAmount,
-        balance_amount: newBalance,
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', studentFeeId);
-
-    await supabase.from('fee_payment_audit_log').insert({
-      institute_id: user.instituteId,
-      payment_id: payment.id,
-      action: 'payment_recorded',
-      amount: amountPaid,
-      performed_by: user.id,
+    const payment = await FeePaymentDoc.create({
+      instituteId: instituteObjId,
+      studentId: new mongoose.Types.ObjectId(studentId),
+      batchId: batchId && mongoose.Types.ObjectId.isValid(batchId)
+        ? new mongoose.Types.ObjectId(batchId)
+        : null,
+      receiptNumber,
+      amountPaid: Number(amountPaid),
+      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      paymentMode,
+      transactionId: transactionId || null,
+      notes: notes || null,
+      status: 'completed',
+      recordedBy: new mongoose.Types.ObjectId(user.id),
     });
 
     await logActivity({
@@ -144,12 +144,22 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       action: 'payment_recorded',
       entityType: 'fee_payment',
-      entityId: payment.id,
-      newValues: { studentId, studentFeeId, amountPaid, paymentMethod, receiptNumber },
+      entityId: payment._id.toString(),
+      newValues: { studentId, amountPaid, paymentMode, receiptNumber },
       request,
     });
 
-    return apiSuccess(payment, 'Payment recorded successfully');
+    return apiSuccess(
+      {
+        id: payment._id.toString(),
+        receiptNumber: payment.receiptNumber,
+        amountPaid: payment.amountPaid,
+        paymentMode: payment.paymentMode,
+        status: payment.status,
+        createdAt: payment.createdAt,
+      },
+      'Payment recorded successfully'
+    );
   } catch (error) {
     console.error('Create payment error:', error);
     return apiError('An error occurred', 500);

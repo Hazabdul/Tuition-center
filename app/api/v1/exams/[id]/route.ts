@@ -1,117 +1,99 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import ExamDoc from '@/models/Exam';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid exam id', 400);
 
-    let exam: any = null;
-    let error: any = null;
+    await dbConnect();
 
-    const res = await supabase
-      .from('exams')
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at, batches(id, name, code, academic_year)')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    const exam = await ExamDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+    })
+      .populate('batchId', '_id name code academicYear')
+      .lean();
 
-    exam = res.data;
-    error = res.error;
+    if (!exam) return apiError('Exam not found', 404);
 
-    if (error || !exam) {
-      const fallbackRes = await supabase
-        .from('exams')
-        .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at')
-        .eq('id', params.id)
-        .eq('institute_id', user.instituteId)
-        .maybeSingle();
-      exam = fallbackRes.data;
-      error = fallbackRes.error;
-    }
-
-    if (error || !exam) return apiError('Exam not found', 404);
-
-    const { data: examSubjects } = await supabase
-      .from('exam_subjects')
-      .select('id, exam_id, subject_id, institute_id, exam_date, start_time, end_time, max_marks, passing_marks, created_at, subject:subjects(id, name, code)')
-      .eq('exam_id', params.id)
-      .eq('institute_id', user.instituteId);
-
-    const formattedExam = {
-      ...exam,
-      batch: (exam as any).batches || (exam as any).batch || null,
-      exam_subjects: examSubjects || [],
-    };
-
-    return apiSuccess(formattedExam, 'Exam fetched successfully');
+    return apiSuccess({
+      id: exam._id.toString(),
+      name: exam.name,
+      code: exam.code,
+      academicYear: exam.academicYear ?? null,
+      startDate: exam.startDate ?? null,
+      endDate: exam.endDate ?? null,
+      status: exam.status,
+      batch: exam.batchId,
+      createdAt: exam.createdAt,
+    }, 'Exam fetched successfully');
   } catch (error) {
     console.error('Get exam error:', error);
     return apiError('An error occurred', 500);
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin', 'teacher'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid exam id', 400);
 
     const body = await request.json();
-    const batchId = body.batchId ?? body.batch_id;
-    const name = body.name;
-    const code = body.code ? body.code.toUpperCase().trim() : undefined;
-    const academicYear = body.academicYear ?? body.academic_year;
-    const startDate = body.startDate ?? body.start_date;
-    const endDate = body.endDate ?? body.end_date;
-    const description = body.description;
+    const { name, code, academicYear, startDate, endDate } = body;
 
-    const { data: existing } = await supabase
-      .from('exams')
-      .select('id, batch_id, name, code, academic_year, start_date, end_date, description, status')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const existing = await ExamDoc.findOne({
+      _id: params.id,
+      instituteId: instituteObjId,
+    }).lean();
 
     if (!existing) return apiError('Exam not found', 404);
 
-    if (code && code !== existing.code) {
-      const { data: existingCode } = await supabase
-        .from('exams')
-        .select('id')
-        .eq('institute_id', user.instituteId)
-        .ilike('code', code)
-        .neq('id', params.id)
-        .maybeSingle();
-
-      if (existingCode) return apiError('Exam with this code already exists in the institute', 409);
-    }
-
-    const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (batchId !== undefined) updateData.batch_id = batchId;
-    if (name !== undefined) updateData.name = name;
-    if (code !== undefined) updateData.code = code;
-    if (academicYear !== undefined) updateData.academic_year = academicYear;
-    if (startDate !== undefined) updateData.start_date = startDate || null;
-    if (endDate !== undefined) updateData.end_date = endDate || null;
-    if (description !== undefined) updateData.description = description;
-
-    const { data: exam, error } = await supabase
-      .from('exams')
-      .update(updateData)
-      .eq('id', params.id)
-      .select('id, institute_id, batch_id, name, code, academic_year, start_date, end_date, description, status, created_at, updated_at')
-      .single();
-
-    if (error) {
-      if (error.code === '23505') {
-        return apiError('Exam with this code already exists in the institute', 409);
+    let updatedCode = existing.code;
+    if (code) {
+      updatedCode = code.toUpperCase().trim();
+      if (updatedCode !== existing.code) {
+        const conflict = await ExamDoc.findOne({
+          instituteId: instituteObjId,
+          code: updatedCode,
+          _id: { $ne: params.id },
+        }).lean();
+        if (conflict) return apiError('Exam with this code already exists in the institute', 409);
       }
-      return apiError(error.message, 400);
     }
+
+    const updated = await ExamDoc.findByIdAndUpdate(
+      params.id,
+      {
+        $set: {
+          ...(name !== undefined && { name: name.trim() }),
+          code: updatedCode,
+          ...(academicYear !== undefined && { academicYear }),
+          ...(startDate !== undefined && { startDate: startDate ? new Date(startDate) : null }),
+          ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
+        },
+      },
+      { new: true, runValidators: true }
+    ).lean();
 
     await logActivity({
       instituteId: user.instituteId,
@@ -119,40 +101,42 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       action: 'exam_updated',
       entityType: 'exam',
       entityId: params.id,
-      oldValues: existing,
+      oldValues: existing as unknown as Record<string, unknown>,
       newValues: body,
       request,
     });
 
-    return apiSuccess(exam, 'Exam updated successfully');
+    return apiSuccess(
+      { id: updated?._id.toString(), name: updated?.name, code: updated?.code },
+      'Exam updated successfully'
+    );
   } catch (error) {
     console.error('Update exam error:', error);
     return apiError('An error occurred', 500);
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid exam id', 400);
 
-    const { data: existing } = await supabase
-      .from('exams')
-      .select('id, status')
-      .eq('id', params.id)
-      .eq('institute_id', user.instituteId)
-      .maybeSingle();
+    await dbConnect();
+
+    const existing = await ExamDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+    }).lean();
 
     if (!existing) return apiError('Exam not found', 404);
 
-    let { error } = await supabase
-      .from('exams')
-      .delete()
-      .eq('id', params.id);
-
-    if (error) return apiError(error.message, 400);
+    await ExamDoc.findByIdAndDelete(params.id);
 
     await logActivity({
       instituteId: user.instituteId,
@@ -160,7 +144,6 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       action: 'exam_deleted',
       entityType: 'exam',
       entityId: params.id,
-      oldValues: existing,
       request,
     });
 

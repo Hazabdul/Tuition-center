@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,11 +13,9 @@ export async function GET(request: NextRequest) {
     const instituteId = user.instituteId;
     if (!instituteId) return apiError('No institute associated with user', 400);
 
-    const { data: institute } = await supabase
-      .from('institutes')
-      .select('notes')
-      .eq('id', instituteId)
-      .single();
+    await dbConnect();
+
+    const institute = await InstituteDoc.findById(instituteId).select('notes').lean();
 
     let gatewayConfig = {
       stripeConfigured: true,
@@ -53,13 +54,14 @@ export async function POST(request: NextRequest) {
     if (!instituteId) return apiError('No institute associated with user', 400);
 
     const body = await request.json();
-    const { stripePublishableKey, stripeSecretKey, razorpayKeyId, razorpayKeySecret, enableStripeCard, enableUpiAutopay, autoCollectOnDueDate } = body;
+    const {
+      stripePublishableKey, stripeSecretKey, razorpayKeyId, razorpayKeySecret,
+      enableStripeCard, enableUpiAutopay, autoCollectOnDueDate,
+    } = body;
 
-    const { data: existing } = await supabase
-      .from('institutes')
-      .select('notes')
-      .eq('id', instituteId)
-      .single();
+    await dbConnect();
+
+    const existing = await InstituteDoc.findById(instituteId).select('notes').lean();
 
     let existingNotesObj: Record<string, unknown> = {};
     if (existing?.notes) {
@@ -83,13 +85,9 @@ export async function POST(request: NextRequest) {
       gatewayConfig,
     };
 
-    await supabase
-      .from('institutes')
-      .update({
-        notes: JSON.stringify(updatedNotesObj),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', instituteId);
+    await InstituteDoc.findByIdAndUpdate(instituteId, {
+      $set: { notes: JSON.stringify(updatedNotesObj) },
+    });
 
     await logActivity({
       instituteId,

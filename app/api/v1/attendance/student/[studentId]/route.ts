@@ -1,60 +1,67 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import AttendanceDoc from '@/models/Attendance';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { studentId: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { studentId: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.studentId)) return apiError('Invalid student id', 400);
+
+    await dbConnect();
 
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '100');
-    const sortBy = searchParams.get('sortBy') || 'date';
-    const sortOrder = searchParams.get('sortOrder') || 'desc';
-    const startDate = searchParams.get('startDate') || '';
-    const endDate = searchParams.get('endDate') || '';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '100')));
+    const skip = (page - 1) * limit;
 
-    let query = supabase
-      .from('attendance')
-      .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, batch:batches(id, name, code)', { count: 'exact' })
-      .eq('institute_id', user.instituteId)
-      .eq('student_id', params.studentId);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const studentObjId = new mongoose.Types.ObjectId(params.studentId);
 
-    if (startDate) query = query.gte('date', startDate);
-    if (endDate) query = query.lte('date', endDate);
+    const filter: Record<string, unknown> = {
+      instituteId: instituteObjId,
+      studentId: studentObjId,
+    };
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const [records, total] = await Promise.all([
+      AttendanceDoc.find(filter)
+        .populate('batchId', '_id name code')
+        .sort({ date: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AttendanceDoc.countDocuments(filter),
+    ]);
 
-    const { data, count } = await query;
-
-    const records = data || [];
-    const totalRecords = count || 0;
-
-    let presentCount = 0;
-    let absentCount = 0;
-    let lateCount = 0;
-    let leaveCount = 0;
-
-    for (const rec of records) {
-      if (rec.status === 'present') presentCount++;
-      else if (rec.status === 'absent') absentCount++;
-      else if (rec.status === 'late') lateCount++;
-      else if (rec.status === 'leave') leaveCount++;
-    }
-
+    const presentCount = records.filter((r) => r.status === 'present').length;
+    const absentCount = records.filter((r) => r.status === 'absent').length;
+    const lateCount = records.filter((r) => r.status === 'late').length;
+    const leaveCount = records.filter((r) => r.status === 'excused').length;
     const attendedCount = presentCount + lateCount;
-    const attendancePercentage = totalRecords > 0
-      ? Math.round((attendedCount / totalRecords) * 10000) / 100
-      : 0;
+    const attendancePercentage = total > 0 ? Math.round((attendedCount / total) * 100) : 0;
+
+    const formattedRecords = records.map((r) => ({
+      id: r._id.toString(),
+      studentId: params.studentId,
+      batchId: r.batchId,
+      date: r.date,
+      status: r.status,
+      remarks: r.remarks ?? null,
+      createdAt: r.createdAt,
+    }));
 
     return apiSuccess(
       {
-        records,
+        records: formattedRecords,
         summary: {
-          total: totalRecords,
+          total,
           present: presentCount,
           absent: absentCount,
           late: lateCount,
@@ -64,7 +71,7 @@ export async function GET(request: NextRequest, { params }: { params: { studentI
         },
       },
       'Student attendance fetched',
-      { page, limit, total: totalRecords, totalPages: Math.ceil(totalRecords / limit) }
+      { page, limit, total, totalPages: Math.ceil(total / limit) }
     );
   } catch (error) {
     console.error('Student attendance error:', error);

@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import InstituteDoc from '@/models/Institute';
+import InstituteSubscriptionDoc from '@/models/InstituteSubscription';
+import SubscriptionPlanDoc from '@/models/SubscriptionPlan';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,50 +13,64 @@ export async function GET(request: NextRequest) {
       return apiError('Unauthorized: Only Super Admins can access financial reports', 403);
     }
 
-    // 1. Fetch active subscriptions with plan prices
-    const { data: subs } = await supabase
-      .from('institute_subscriptions')
-      .select('id, status, created_at, expiry_date, institute:institutes(id, name, code, status), plan:subscription_plans(name, code, monthly_price, annual_price)');
+    await dbConnect();
 
-    const { data: allInstitutes } = await supabase.from('institutes').select('id, status').is('deleted_at', null);
-    const { data: allPlans } = await supabase.from('subscription_plans').select('id, name, code, monthly_price, annual_price, student_limit, teacher_limit');
+    const [allInstitutes, subs, allPlans] = await Promise.all([
+      InstituteDoc.find({ deletedAt: null }).select('_id name code status').lean(),
+      InstituteSubscriptionDoc.find({ deletedAt: null })
+        .populate('instituteId', '_id name code status')
+        .populate('planId', '_id name code monthlyPrice annualPrice')
+        .sort({ createdAt: -1 })
+        .lean(),
+      SubscriptionPlanDoc.find({ deletedAt: null })
+        .select('_id name code monthlyPrice annualPrice studentLimit teacherLimit')
+        .lean(),
+    ]);
 
-    const totalInstCount = allInstitutes?.length || 0;
-    const activeInstCount = allInstitutes?.filter(i => i.status === 'active').length || 0;
-    const suspendedInstCount = allInstitutes?.filter(i => i.status === 'suspended').length || 0;
+    const totalInstCount = allInstitutes.length;
+    const activeInstCount = allInstitutes.filter((i) => i.status === 'active').length;
+    const suspendedInstCount = allInstitutes.filter((i) => i.status === 'suspended').length;
 
-    // Calculate MRR from active subscriptions
     let mrr = 0;
-    (subs || []).forEach(sub => {
-      if (sub.status === 'active' && sub.plan) {
-        mrr += Number((sub.plan as any).monthly_price || 0);
+    for (const sub of subs) {
+      if (sub.status === 'active' && sub.planId) {
+        const plan = sub.planId as any;
+        mrr += Number(plan?.monthlyPrice || 0);
       }
-    });
+    }
 
     const arr = mrr * 12;
-    const churnRate = totalInstCount > 0 ? Number(((suspendedInstCount / totalInstCount) * 100).toFixed(1)) : 0;
+    const churnRate = totalInstCount > 0
+      ? Number(((suspendedInstCount / totalInstCount) * 100).toFixed(1))
+      : 0;
     const arpu = activeInstCount > 0 ? Math.round(mrr / activeInstCount) : 0;
 
-    // 12-Month Revenue Trend Simulation / Calculation
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const revenueTrend = months.map((m, idx) => {
-      const multiplier = 0.6 + (idx * 0.04);
+      const multiplier = 0.6 + idx * 0.04;
       const rev = Math.round(mrr * multiplier);
-      return { month: m, revenue: rev, institutes: Math.max(1, Math.round(activeInstCount * (idx + 1) / 12)) };
+      return {
+        month: m,
+        revenue: rev,
+        institutes: Math.max(1, Math.round((activeInstCount * (idx + 1)) / 12)),
+      };
     });
 
-    // Transactions Ledger
-    const transactions = (subs || []).map((sub, idx) => ({
-      id: sub.id,
-      receiptNumber: `SUB-INV-2026-${String(idx + 1).padStart(3, '0')}`,
-      instituteName: (sub.institute as any)?.name || 'Apex International Academy',
-      instituteCode: (sub.institute as any)?.code || 'APEX01',
-      planName: (sub.plan as any)?.name || 'Professional',
-      amount: Number((sub.plan as any)?.monthly_price || 7999),
-      status: sub.status === 'active' ? 'Paid' : sub.status === 'suspended' ? 'Failed' : 'Pending',
-      paymentMethod: idx % 2 === 0 ? 'Stripe (Credit Card)' : 'Razorpay (UPI)',
-      date: sub.created_at ? new Date(sub.created_at).toISOString().split('T')[0] : '2026-07-01',
-    }));
+    const transactions = subs.map((sub, idx) => {
+      const inst = sub.instituteId as any;
+      const plan = sub.planId as any;
+      return {
+        id: sub._id.toString(),
+        receiptNumber: `SUB-INV-2026-${String(idx + 1).padStart(3, '0')}`,
+        instituteName: inst?.name || 'Unknown',
+        instituteCode: inst?.code || '-',
+        planName: plan?.name || 'Unknown',
+        amount: Number(plan?.monthlyPrice || 0),
+        status: sub.status === 'active' ? 'Paid' : sub.status === 'suspended' ? 'Failed' : 'Pending',
+        paymentMethod: idx % 2 === 0 ? 'Stripe (Credit Card)' : 'Razorpay (UPI)',
+        date: sub.createdAt ? new Date(sub.createdAt).toISOString().split('T')[0] : '2026-01-01',
+      };
+    });
 
     return apiSuccess({
       mrr,
@@ -64,7 +82,15 @@ export async function GET(request: NextRequest) {
       suspendedInstitutes: suspendedInstCount,
       revenueTrend,
       transactions,
-      plans: allPlans || [],
+      plans: allPlans.map((p) => ({
+        id: p._id.toString(),
+        name: p.name,
+        code: p.code,
+        monthlyPrice: p.monthlyPrice,
+        annualPrice: p.annualPrice,
+        studentLimit: p.studentLimit,
+        teacherLimit: p.teacherLimit,
+      })),
     }, 'Financial reports fetched successfully');
   } catch (error) {
     console.error('Financial reports error:', error);

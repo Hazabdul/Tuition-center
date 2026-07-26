@@ -1,26 +1,36 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid batch id', 400);
 
-    const { data: subjects, error } = await supabase
-      .from('batch_subject')
-      .select('subject:subjects(id, name, code, description, max_marks, passing_marks, is_active)')
-      .eq('batch_id', params.id);
+    await dbConnect();
 
-    if (error) return apiError(error.message, 400);
+    const batch = await BatchDoc.findOne({
+      _id: params.id,
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    })
+      .populate('subjects', '_id name code description maxMarks passingMarks isActive')
+      .lean();
 
-    const result = (subjects || []).map((s: any) => ({
-      ...s.subject,
-      maxMarks: s.subject?.max_marks,
-      passingMarks: s.subject?.passing_marks,
-      isActive: s.subject?.is_active,
-    })).filter(Boolean);
+    if (!batch) return apiError('Batch not found', 404);
+
+    const result = (batch.subjects || []).map((sub: any) => ({
+      id: sub._id?.toString(),
+      ...sub,
+    }));
 
     return apiSuccess(result, 'Batch subjects fetched');
   } catch (error) {
@@ -29,81 +39,86 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid batch id', 400);
 
     const body = await request.json();
     const { subjectId, subjectIds } = body;
     const idsToAssign: string[] = Array.isArray(subjectIds) ? subjectIds : (subjectId ? [subjectId] : []);
-
     if (idsToAssign.length === 0) return apiError('subjectId or subjectIds array is required', 400);
 
-    const { data: batch } = await supabase.from('batches').select('id').eq('id', params.id).eq('institute_id', user.instituteId).is('deleted_at', null).maybeSingle();
-    if (!batch) return apiError('Batch not found', 404);
+    await dbConnect();
 
-    const { data: existingLinks } = await supabase
-      .from('batch_subject')
-      .select('subject_id')
-      .eq('batch_id', params.id)
-      .in('subject_id', idsToAssign);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const validSubjectObjIds = idsToAssign
+      .filter((sid) => mongoose.Types.ObjectId.isValid(sid))
+      .map((sid) => new mongoose.Types.ObjectId(sid));
 
-    const existingIds = new Set(existingLinks?.map(l => l.subject_id) || []);
-    const newSubjectIds = idsToAssign.filter((sid: string) => !existingIds.has(sid));
+    if (validSubjectObjIds.length === 0) return apiError('No valid subject IDs provided', 400);
 
-    if (newSubjectIds.length === 0) return apiError('All selected subjects are already assigned to this batch', 409);
+    await BatchDoc.findOneAndUpdate(
+      { _id: params.id, instituteId: instituteObjId },
+      { $addToSet: { subjects: { $each: validSubjectObjIds } } }
+    );
 
-    const { data: validSubjects } = await supabase
-      .from('subjects')
-      .select('id')
-      .in('id', newSubjectIds)
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'batch_subjects_assigned',
+      entityType: 'batch',
+      entityId: params.id,
+      newValues: { subjectIds: idsToAssign },
+      request,
+    });
 
-    const validIds = new Set(validSubjects?.map(s => s.id) || []);
-    const toInsert = newSubjectIds.filter((sid: string) => validIds.has(sid)).map((sid: string) => ({
-      batch_id: params.id, subject_id: sid, institute_id: user.instituteId,
-    }));
-
-    if (toInsert.length === 0) return apiError('No valid subjects found to assign', 400);
-
-    const { error } = await supabase.from('batch_subject').insert(toInsert);
-    if (error) return apiError(error.message, 400);
-
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'batch_subjects_assigned', entityType: 'batch', entityId: params.id, newValues: { subjectIds: toInsert.map(t => t.subject_id) }, request });
-
-    return apiSuccess({ assigned: toInsert.map(t => t.subject_id) }, 'Subjects assigned to batch successfully');
+    return apiSuccess({ assigned: idsToAssign }, 'Subjects assigned to batch successfully');
   } catch (error) {
     console.error('Assign batch subjects error:', error);
     return apiError('An error occurred', 500);
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid batch id', 400);
 
     const { searchParams } = new URL(request.url);
     const subjectId = searchParams.get('subjectId');
+    if (!subjectId || !mongoose.Types.ObjectId.isValid(subjectId)) {
+      return apiError('Valid subjectId is required', 400);
+    }
 
-    if (!subjectId) return apiError('subjectId is required', 400);
+    await dbConnect();
 
-    const { error } = await supabase
-      .from('batch_subject')
-      .delete()
-      .eq('batch_id', params.id)
-      .eq('subject_id', subjectId)
-      .eq('institute_id', user.instituteId);
+    await BatchDoc.findOneAndUpdate(
+      { _id: params.id, instituteId: new mongoose.Types.ObjectId(user.instituteId) },
+      { $pull: { subjects: new mongoose.Types.ObjectId(subjectId) } }
+    );
 
-    if (error) return apiError(error.message, 400);
-
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'batch_subject_unlinked', entityType: 'batch', entityId: params.id, newValues: { subjectId }, request });
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'batch_subject_unlinked',
+      entityType: 'batch',
+      entityId: params.id,
+      newValues: { subjectId },
+      request,
+    });
 
     return apiSuccess(null, 'Subject unlinked from batch successfully');
   } catch (error) {

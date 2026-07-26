@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import MarkDoc from '@/models/Mark';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,38 +11,67 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const search = searchParams.get('search') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
+    const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     const studentId = searchParams.get('studentId') || '';
     const examId = searchParams.get('examId') || '';
     const subjectId = searchParams.get('subjectId') || '';
     const isPublished = searchParams.get('isPublished');
 
-    let query = supabase
-      .from('marks')
-      .select('id, institute_id, student_id, exam_id, subject_id, max_marks, obtained_marks, grade, percentage, is_pass, remarks, entered_by, is_published, created_at, updated_at, student:students(id, first_name, last_name, student_id, admission_number), exam:exams(id, name, code), subject:subjects(id, name, code)', { count: 'exact' })
-      .eq('institute_id', user.instituteId);
+    const filter: Record<string, unknown> = {
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+    };
 
-    if (studentId) query = query.eq('student_id', studentId);
-    if (examId) query = query.eq('exam_id', examId);
-    if (subjectId) query = query.eq('subject_id', subjectId);
-    if (isPublished === 'true') query = query.eq('is_published', true);
-    if (isPublished === 'false') query = query.eq('is_published', false);
-    if (search) {
-      query = query.or(`student_id.ilike.%${search}%`);
+    if (studentId && mongoose.Types.ObjectId.isValid(studentId)) {
+      filter.studentId = new mongoose.Types.ObjectId(studentId);
     }
+    if (examId && mongoose.Types.ObjectId.isValid(examId)) {
+      filter.examId = new mongoose.Types.ObjectId(examId);
+    }
+    if (subjectId && mongoose.Types.ObjectId.isValid(subjectId)) {
+      filter.subjectId = new mongoose.Types.ObjectId(subjectId);
+    }
+    if (isPublished === 'true') filter.isPass = true;
+    if (isPublished === 'false') filter.isPass = false;
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const sortField: Record<string, 1 | -1> = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
-    const { data, count } = await query;
+    const [records, total] = await Promise.all([
+      MarkDoc.find(filter)
+        .populate('studentId', '_id firstName lastName studentId admissionNumber')
+        .populate('examId', '_id name code')
+        .populate('subjectId', '_id name code')
+        .sort(sortField)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      MarkDoc.countDocuments(filter),
+    ]);
 
-    return apiSuccess(data || [], 'Marks fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    const data = records.map((m) => ({
+      id: m._id.toString(),
+      instituteId: m.instituteId.toString(),
+      studentId: m.studentId,
+      examId: m.examId,
+      subjectId: m.subjectId,
+      maxMarks: m.maxMarks,
+      obtainedMarks: m.obtainedMarks,
+      grade: m.grade ?? null,
+      percentage: m.percentage,
+      isPass: m.isPass,
+      remarks: m.remarks ?? null,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+    }));
+
+    return apiSuccess(data, 'Marks fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List marks error:', error);

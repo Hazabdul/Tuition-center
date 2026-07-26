@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import SubjectDoc from '@/models/Subject';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,60 +12,55 @@ export async function GET(request: NextRequest) {
     if (!user) return apiError('Not authenticated', 401);
     if (!user.instituteId) return apiError('No institute associated', 400);
 
+    await dbConnect();
+
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || '';
-    const sortBy = searchParams.get('sortBy') || 'created_at';
+    const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
-    let selectFields = 'id, name, code, description, syllabus, max_marks, passing_marks, is_active, created_at';
-    let query = supabase
-      .from('subjects')
-      .select(selectFields, { count: 'exact' })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    const filter: Record<string, unknown> = {
+      instituteId: new mongoose.Types.ObjectId(user.instituteId),
+      deletedAt: null,
+    };
 
     if (search) {
-      query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ name: regex }, { code: regex }];
     }
-    if (status === 'active') query = query.eq('is_active', true);
-    if (status === 'inactive') query = query.eq('is_active', false);
+    if (status === 'active') filter.isActive = true;
+    if (status === 'inactive') filter.isActive = false;
 
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-    query = query.range((page - 1) * limit, page * limit - 1);
+    const sortField: Record<string, 1 | -1> = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
-    let data: any[] | null = null;
-    let count: number | null = 0;
-    let error: any = null;
+    const [records, total] = await Promise.all([
+      SubjectDoc.find(filter)
+        .select('_id name code description syllabus maxMarks passingMarks isActive createdAt')
+        .sort(sortField)
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      SubjectDoc.countDocuments(filter),
+    ]);
 
-    const res = await query;
-    data = res.data as any[] | null;
-    count = res.count;
-    error = res.error;
+    const data = records.map((s) => ({
+      id: s._id.toString(),
+      name: s.name,
+      code: s.code,
+      description: s.description ?? null,
+      syllabus: s.syllabus ?? null,
+      maxMarks: s.maxMarks,
+      passingMarks: s.passingMarks,
+      isActive: s.isActive,
+      createdAt: s.createdAt,
+    }));
 
-    if (error && error.message.includes('syllabus')) {
-      let fallbackQuery = supabase
-        .from('subjects')
-        .select('id, name, code, description, max_marks, passing_marks, is_active, created_at', { count: 'exact' })
-        .eq('institute_id', user.instituteId)
-        .is('deleted_at', null);
-      if (search) fallbackQuery = fallbackQuery.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
-      if (status === 'active') fallbackQuery = fallbackQuery.eq('is_active', true);
-      if (status === 'inactive') fallbackQuery = fallbackQuery.eq('is_active', false);
-      fallbackQuery = fallbackQuery.order(sortBy, { ascending: sortOrder === 'asc' });
-      fallbackQuery = fallbackQuery.range((page - 1) * limit, page * limit - 1);
-      const fallbackRes = await fallbackQuery;
-      data = fallbackRes.data as any[] | null;
-      count = fallbackRes.count;
-      error = fallbackRes.error;
-    }
-
-    if (error) return apiError(error.message, 400);
-
-    return apiSuccess(data || [], 'Subjects fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    return apiSuccess(data, 'Subjects fetched', {
+      page, limit, total, totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('List subjects error:', error);
@@ -77,26 +76,28 @@ export async function POST(request: NextRequest) {
     if (!user.instituteId) return apiError('No institute associated', 400);
 
     const body = await request.json();
-    const { name, code, description, syllabus, maxMarks, passingMarks, batchIds, teacherIds, studentIds } = body;
+    const { name, code, description, syllabus, maxMarks, passingMarks, batchIds } = body;
 
     if (!name) return apiError('Subject name is required', 400);
 
     let finalCode = (code || name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6)).toUpperCase().trim();
     if (!finalCode) finalCode = `SUB${Math.floor(100 + Math.random() * 900)}`;
 
-    const { data: existingCode } = await supabase
-      .from('subjects')
-      .select('id')
-      .eq('institute_id', user.instituteId)
-      .ilike('code', finalCode)
-      .is('deleted_at', null)
-      .maybeSingle();
+    await dbConnect();
 
-    if (existingCode) {
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
+    const existing = await SubjectDoc.findOne({
+      instituteId: instituteObjId,
+      code: finalCode,
+      deletedAt: null,
+    }).lean();
+
+    if (existing) {
       if (!code) {
         finalCode = `${finalCode}${Math.floor(10 + Math.random() * 90)}`;
       } else {
-        return apiError(`Subject code "${finalCode}" already exists in this institute. Please choose a unique code.`, 409);
+        return apiError(`Subject code "${finalCode}" already exists. Please choose a unique code.`, 409);
       }
     }
 
@@ -104,63 +105,44 @@ export async function POST(request: NextRequest) {
       return apiError('Passing marks cannot exceed max marks', 400);
     }
 
-    const insertPayload: Record<string, unknown> = {
-      institute_id: user.instituteId,
-      name,
+    const subject = await SubjectDoc.create({
+      instituteId: instituteObjId,
+      name: name.trim(),
       code: finalCode,
-      description,
+      description: description || null,
       syllabus: syllabus || null,
-      max_marks: maxMarks ? Number(maxMarks) : 100,
-      passing_marks: passingMarks ? Number(passingMarks) : 40,
-      is_active: true,
-    };
+      maxMarks: maxMarks ? Number(maxMarks) : 100,
+      passingMarks: passingMarks ? Number(passingMarks) : 40,
+      isActive: true,
+    });
 
-    let { data: subject, error } = await supabase
-      .from('subjects')
-      .insert(insertPayload)
-      .select('id, name, code')
-      .single();
-
-    if (error && error.message.includes('syllabus')) {
-      delete insertPayload.syllabus;
-      const fallbackInsert = await supabase
-        .from('subjects')
-        .insert(insertPayload)
-        .select('id, name, code')
-        .single();
-      subject = fallbackInsert.data;
-      error = fallbackInsert.error;
-    }
-
-    if (error || !subject) return apiError(error?.message || 'Failed to create subject', 400);
-
-    // Link batchIds if provided
     if (Array.isArray(batchIds) && batchIds.length > 0) {
-      const batchInserts = batchIds.map((bid: string) => ({
-        batch_id: bid, subject_id: subject!.id, institute_id: user.instituteId,
-      }));
-      await supabase.from('batch_subject').insert(batchInserts);
+      const validBatchIds = batchIds
+        .filter((id: string) => mongoose.Types.ObjectId.isValid(id))
+        .map((id: string) => new mongoose.Types.ObjectId(id));
+
+      if (validBatchIds.length > 0) {
+        await BatchDoc.updateMany(
+          { _id: { $in: validBatchIds }, instituteId: instituteObjId },
+          { $addToSet: { subjects: subject._id } }
+        );
+      }
     }
 
-    // Link teacherIds if provided
-    if (Array.isArray(teacherIds) && teacherIds.length > 0) {
-      const teacherInserts = teacherIds.map((tid: string) => ({
-        teacher_id: tid, subject_id: subject!.id, institute_id: user.instituteId,
-      }));
-      await supabase.from('teacher_subject').insert(teacherInserts);
-    }
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'subject_created',
+      entityType: 'subject',
+      entityId: subject._id.toString(),
+      newValues: { name, code: finalCode },
+      request,
+    });
 
-    // Link studentIds if provided
-    if (Array.isArray(studentIds) && studentIds.length > 0) {
-      const studentInserts = studentIds.map((sid: string) => ({
-        student_id: sid, subject_id: subject!.id, institute_id: user.instituteId,
-      }));
-      await supabase.from('student_subject').insert(studentInserts);
-    }
-
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'subject_created', entityType: 'subject', entityId: subject.id, newValues: body, request });
-
-    return apiSuccess(subject, 'Subject created successfully');
+    return apiSuccess(
+      { id: subject._id.toString(), name: subject.name, code: subject.code },
+      'Subject created successfully'
+    );
   } catch (error) {
     console.error('Create subject error:', error);
     return apiError('An error occurred', 500);

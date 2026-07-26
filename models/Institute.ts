@@ -15,7 +15,7 @@ export interface IInstitute extends Document {
   contactPersonName?: string | null;
   contactPersonPhone?: string | null;
   contactPersonEmail?: string | null;
-  status: 'active' | 'suspended' | 'inactive' | 'pending' | 'deleted';
+  status: 'active' | 'suspended' | 'inactive' | 'pending' | 'pending_activation' | 'deleted';
   studentLimit: number;
   teacherLimit: number;
   adminLimit: number;
@@ -44,7 +44,7 @@ const InstituteSchema = new Schema<IInstitute>(
     status: {
       type: String,
       default: 'active',
-      enum: ['active', 'suspended', 'inactive', 'pending', 'deleted'],
+      enum: ['active', 'suspended', 'inactive', 'pending', 'pending_activation', 'deleted'],
       index: true,
     },
     studentLimit: { type: Number, default: 100 },

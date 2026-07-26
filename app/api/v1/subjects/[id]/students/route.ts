@@ -1,74 +1,108 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import SubjectDoc from '@/models/Subject';
+import BatchDoc from '@/models/Batch';
+import mongoose from 'mongoose';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid subject id', 400);
 
     const body = await request.json();
-    const { studentId, studentIds } = body;
+    const { studentId, studentIds, batchId } = body;
     const idsToAssign: string[] = Array.isArray(studentIds) ? studentIds : (studentId ? [studentId] : []);
-
     if (idsToAssign.length === 0) return apiError('studentId or studentIds array is required', 400);
 
-    const { data: subject } = await supabase.from('subjects').select('id').eq('id', params.id).eq('institute_id', user.instituteId).is('deleted_at', null).maybeSingle();
-    if (!subject) return apiError('Subject not found', 404);
+    await dbConnect();
 
-    const { data: existingLinks } = await supabase
-      .from('student_subject')
-      .select('student_id')
-      .eq('subject_id', params.id)
-      .in('student_id', idsToAssign);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const validStudentObjIds = idsToAssign
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
 
-    const existingSet = new Set(existingLinks?.map(l => l.student_id) || []);
-    const newStudentIds = idsToAssign.filter(sid => !existingSet.has(sid));
+    if (validStudentObjIds.length === 0) return apiError('No valid student IDs provided', 400);
 
-    if (newStudentIds.length === 0) return apiError('All selected students are already linked to this subject', 409);
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      await BatchDoc.findOneAndUpdate(
+        { _id: batchId, instituteId: instituteObjId },
+        { $addToSet: { students: { $each: validStudentObjIds } } }
+      );
+    } else {
+      await BatchDoc.updateMany(
+        { subjects: new mongoose.Types.ObjectId(params.id), instituteId: instituteObjId },
+        { $addToSet: { students: { $each: validStudentObjIds } } }
+      );
+    }
 
-    const toInsert = newStudentIds.map(sid => ({
-      student_id: sid,
-      subject_id: params.id,
-      institute_id: user.instituteId,
-    }));
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'subject_students_linked',
+      entityType: 'subject',
+      entityId: params.id,
+      newValues: { studentIds: idsToAssign },
+      request,
+    });
 
-    const { error } = await supabase.from('student_subject').insert(toInsert);
-    if (error) return apiError(error.message, 400);
-
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'subject_students_linked', entityType: 'subject', entityId: params.id, newValues: { studentIds: newStudentIds }, request });
-
-    return apiSuccess({ linked: newStudentIds }, 'Students linked to subject successfully');
+    return apiSuccess({ linked: idsToAssign }, 'Students linked to subject successfully');
   } catch (error) {
     console.error('Link student subject error:', error);
     return apiError('An error occurred', 500);
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
     if (!['institute_admin', 'super_admin'].includes(user.role)) return apiError('Insufficient permissions', 403);
     if (!user.instituteId) return apiError('No institute associated', 400);
+    if (!mongoose.Types.ObjectId.isValid(params.id)) return apiError('Invalid subject id', 400);
 
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get('studentId');
+    const batchId = searchParams.get('batchId');
 
-    if (!studentId) return apiError('studentId is required', 400);
+    if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) return apiError('Valid studentId is required', 400);
 
-    const { error } = await supabase
-      .from('student_subject')
-      .delete()
-      .eq('subject_id', params.id)
-      .eq('student_id', studentId)
-      .eq('institute_id', user.instituteId);
+    await dbConnect();
 
-    if (error) return apiError(error.message, 400);
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const studentObjId = new mongoose.Types.ObjectId(studentId);
 
-    await logActivity({ instituteId: user.instituteId, userId: user.id, action: 'subject_student_unlinked', entityType: 'subject', entityId: params.id, newValues: { studentId }, request });
+    if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
+      await BatchDoc.findOneAndUpdate(
+        { _id: batchId, instituteId: instituteObjId },
+        { $pull: { students: studentObjId } }
+      );
+    } else {
+      await BatchDoc.updateMany(
+        { subjects: new mongoose.Types.ObjectId(params.id), instituteId: instituteObjId },
+        { $pull: { students: studentObjId } }
+      );
+    }
+
+    await logActivity({
+      instituteId: user.instituteId,
+      userId: user.id,
+      action: 'subject_student_unlinked',
+      entityType: 'subject',
+      entityId: params.id,
+      newValues: { studentId },
+      request,
+    });
 
     return apiSuccess(null, 'Student unlinked from subject successfully');
   } catch (error) {

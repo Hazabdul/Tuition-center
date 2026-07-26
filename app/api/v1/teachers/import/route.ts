@@ -1,6 +1,10 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import TeacherDoc from '@/models/Teacher';
+import InstituteDoc from '@/models/Institute';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,83 +20,80 @@ export async function POST(request: NextRequest) {
       return apiError('Rows array is required', 400);
     }
 
+    await dbConnect();
+
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+
     // Quota check
-    const { count: currentCount } = await supabase
-      .from('teachers')
-      .select('*', { count: 'exact', head: true })
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    const [currentCount, institute] = await Promise.all([
+      TeacherDoc.countDocuments({ instituteId: instituteObjId, deletedAt: null }),
+      InstituteDoc.findById(instituteObjId).select('teacherLimit').lean(),
+    ]);
 
-    const { data: institute } = await supabase.from('institutes').select('teacher_limit').eq('id', user.instituteId).single();
-    const teacherLimit = (institute as Record<string, unknown>)?.teacher_limit as unknown as number || 100;
+    const teacherLimit = institute?.teacherLimit || 100;
 
-    if ((currentCount || 0) + rows.length > teacherLimit) {
-      return apiError(`Importing ${rows.length} teachers would exceed institute teacher quota (${currentCount || 0}/${teacherLimit})`, 400);
+    if (currentCount + rows.length > teacherLimit) {
+      return apiError(
+        `Importing ${rows.length} teachers would exceed the institute teacher quota (${currentCount}/${teacherLimit})`,
+        400
+      );
     }
 
-    const { data: existingTeachers } = await supabase
-      .from('teachers')
-      .select('employee_id')
-      .eq('institute_id', user.instituteId)
-      .is('deleted_at', null);
+    // Build set of existing teacherIds to avoid collision
+    const existingTeachers = await TeacherDoc.find(
+      { instituteId: instituteObjId, deletedAt: null },
+      { teacherId: 1 }
+    ).lean();
+    const existingIdSet = new Set(
+      existingTeachers.map((t) => t.teacherId?.toLowerCase())
+    );
 
-    const existingEmpIdSet = new Set((existingTeachers || []).map(t => t.employee_id?.toLowerCase()));
-
-    let createdCount = 0;
     const errors: string[] = [];
     const toInsert: Record<string, unknown>[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const firstName = row.firstName || row.first_name || row['First Name'] || row.Name;
-      const lastName = row.lastName || row.last_name || row['Last Name'] || '';
-      let employeeId = (row.employeeId || row.employee_id || row['Employee ID'] || row.ID || '').toString().trim();
-      const email = row.email || row.Email || null;
-      const phone = row.phone || row.Phone || null;
-      const qualification = row.qualification || row.Qualification || null;
-      const specialization = row.specialization || row.Specialization || null;
-      const address = row.address || row.Address || null;
+      const firstName = (row.firstName || row.first_name || row['First Name'] || row.Name)?.toString().trim();
+      const lastName = (row.lastName || row.last_name || row['Last Name'] || '').toString().trim();
+      let teacherId = (row.employeeId || row.employee_id || row['Employee ID'] || row.teacherId || '').toString().trim();
+      const email = (row.email || row.Email || '').toLowerCase().trim() || null;
+      const phone = (row.phone || row.Phone || null)?.toString().trim() || null;
+      const qualification = (row.qualification || row.Qualification || null)?.toString().trim() || null;
+      const specialization = (row.specialization || row.Specialization || null)?.toString().trim() || null;
 
       if (!firstName) {
         errors.push(`Row ${i + 1}: First Name is required`);
         continue;
       }
 
-      if (!employeeId) {
-        employeeId = `EMP${Math.floor(1000 + Math.random() * 9000)}`;
+      if (!teacherId) {
+        teacherId = `EMP${Math.floor(1000 + Math.random() * 9000)}`;
       }
 
-      if (existingEmpIdSet.has(employeeId.toLowerCase())) {
-        employeeId = `${employeeId}_${Math.floor(10 + Math.random() * 90)}`;
+      if (existingIdSet.has(teacherId.toLowerCase())) {
+        teacherId = `${teacherId}_${Math.floor(10 + Math.random() * 90)}`;
       }
 
-      existingEmpIdSet.add(employeeId.toLowerCase());
+      existingIdSet.add(teacherId.toLowerCase());
 
       toInsert.push({
-        institute_id: user.instituteId,
-        employee_id: employeeId,
-        first_name: firstName,
-        last_name: lastName,
+        instituteId: instituteObjId,
+        teacherId,
+        firstName,
+        lastName: lastName || null,
         email,
         phone,
         qualification,
         specialization,
-        joining_date: new Date().toISOString().split('T')[0],
-        address,
-        is_active: true,
+        joiningDate: new Date(),
+        isActive: true,
       });
     }
 
+    let createdCount = 0;
     if (toInsert.length > 0) {
-      const { data: inserted, error } = await supabase
-        .from('teachers')
-        .insert(toInsert)
-        .select('id');
-
-      if (error) {
-        return apiError(error.message, 400);
-      }
-      createdCount = inserted?.length || 0;
+      const inserted = await TeacherDoc.insertMany(toInsert, { ordered: false });
+      createdCount = inserted.length;
     }
 
     await logActivity({

@@ -1,6 +1,9 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError, logActivity } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import AttendanceDoc from '@/models/Attendance';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,119 +21,41 @@ export async function POST(request: NextRequest) {
       return apiError('Batch ID, date, and records array are required', 400);
     }
 
-    const records = rawRecords.map((r: any) => ({
-      studentId: r.studentId || r.student_id || r.id,
-      status: r.status,
-      remarks: r.remarks || null,
-    }));
+    await dbConnect();
 
-    const inputDate = new Date(date);
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    if (inputDate > today) {
-      return apiError('Date cannot be in the future', 400);
-    }
+    const instituteObjId = new mongoose.Types.ObjectId(user.instituteId);
+    const batchObjId = new mongoose.Types.ObjectId(batchId);
+    const attendanceDate = new Date(date);
 
-    const validStatuses = ['present', 'absent', 'late', 'leave'];
-    for (const rec of records) {
-      if (!rec.studentId || !rec.status) {
-        return apiError('Each record must have studentId (or student_id) and status', 400);
-      }
-      if (!validStatuses.includes(rec.status)) {
-        return apiError(`Invalid status: ${rec.status}. Must be one of: present, absent, late, leave`, 400);
-      }
-    }
+    let processedCount = 0;
 
-    const { data: existingRecords } = await supabase
-      .from('attendance')
-      .select('id, student_id, status')
-      .eq('institute_id', user.instituteId)
-      .eq('batch_id', batchId)
-      .eq('date', date);
+    for (const rec of rawRecords) {
+      const studentId = rec.studentId || rec.student_id || rec.id;
+      const status = rec.status || 'present';
+      const remarks = rec.remarks || null;
 
-    const existingMap = new Map((existingRecords || []).map(r => [r.student_id, r]));
+      if (!studentId || !mongoose.Types.ObjectId.isValid(studentId)) continue;
 
-    const auditLogs: Record<string, unknown>[] = [];
-    const upsertResults: Record<string, unknown>[] = [];
+      const studentObjId = new mongoose.Types.ObjectId(studentId);
 
-    for (const rec of records) {
-      const existing = existingMap.get(rec.studentId) as any;
-      const oldStatus = existing?.status || null;
+      await AttendanceDoc.findOneAndUpdate(
+        {
+          instituteId: instituteObjId,
+          studentId: studentObjId,
+          batchId: batchObjId,
+          date: attendanceDate,
+        },
+        {
+          $set: {
+            status: ['present', 'absent', 'late', 'excused'].includes(status) ? status : 'present',
+            remarks,
+            recordedBy: new mongoose.Types.ObjectId(user.id),
+          },
+        },
+        { upsert: true, new: true }
+      );
 
-      if (existing) {
-        const { data: updated, error } = await supabase
-          .from('attendance')
-          .update({
-            status: rec.status,
-            remarks: rec.remarks ?? null,
-            marked_by: user.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existing.id)
-          .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at')
-          .single();
-
-        if (error) {
-          console.error('Update attendance error:', error);
-          continue;
-        }
-
-        upsertResults.push(updated);
-
-        if (oldStatus !== rec.status) {
-          auditLogs.push({
-            institute_id: user.instituteId,
-            attendance_id: existing.id,
-            student_id: rec.studentId,
-            batch_id: batchId,
-            date,
-            old_status: oldStatus,
-            new_status: rec.status,
-            action: 'updated',
-            performed_by: user.id,
-          });
-        }
-      } else {
-        const { data: created, error } = await supabase
-          .from('attendance')
-          .insert({
-            institute_id: user.instituteId,
-            student_id: rec.studentId,
-            batch_id: batchId,
-            date,
-            status: rec.status,
-            remarks: rec.remarks ?? null,
-            marked_by: user.id,
-          })
-          .select('id, student_id, batch_id, date, status, remarks, marked_by, created_at, updated_at')
-          .single();
-
-        if (error) {
-          if (error.code === '23505') {
-            continue;
-          }
-          console.error('Create attendance error:', error);
-          continue;
-        }
-
-        upsertResults.push(created);
-
-        auditLogs.push({
-          institute_id: user.instituteId,
-          attendance_id: created.id,
-          student_id: rec.studentId,
-          batch_id: batchId,
-          date,
-          old_status: null,
-          new_status: rec.status,
-          action: 'created',
-          performed_by: user.id,
-        });
-      }
-    }
-
-    if (auditLogs.length > 0) {
-      await supabase.from('attendance_audit_log').insert(auditLogs);
+      processedCount++;
     }
 
     await logActivity({
@@ -138,13 +63,13 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       action: 'attendance_bulk_marked',
       entityType: 'attendance',
-      newValues: { batchId, date, count: records.length },
+      newValues: { batchId, date, count: processedCount },
       request,
     });
 
     return apiSuccess(
-      { processed: upsertResults.length, total: records.length, records: upsertResults },
-      `Bulk attendance processed: ${upsertResults.length} of ${records.length} records`
+      { processed: processedCount, total: rawRecords.length },
+      `Bulk attendance processed: ${processedCount} records`
     );
   } catch (error) {
     console.error('Bulk attendance error:', error);

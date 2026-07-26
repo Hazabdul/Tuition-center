@@ -1,38 +1,64 @@
 export const dynamic = 'force-dynamic';
 import { NextRequest } from 'next/server';
-import { supabase, getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { getUserFromRequest, apiSuccess, apiError } from '@/lib/auth';
+import { dbConnect } from '@/lib/mongodb';
+import NotificationDoc from '@/models/Notification';
+import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
   try {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
 
-    const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1');
-    const limit = parseInt(url.searchParams.get('limit') || '20');
-    const offset = (page - 1) * limit;
+    await dbConnect();
 
-    let query = supabase
-      .from('notifications')
-      .select('*', { count: 'exact' });
+    const url = new URL(request.url);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20')));
+    const skip = (page - 1) * limit;
+
+    const filter: Record<string, unknown> = {};
 
     if (user.role === 'super_admin') {
-      query = query.is('institute_id', null).or(`user_id.eq.${user.id},user_id.is.null`);
+      filter.$or = [{ instituteId: null }, { userId: new mongoose.Types.ObjectId(user.id) }];
+    } else if (user.instituteId) {
+      filter.instituteId = new mongoose.Types.ObjectId(user.instituteId);
+      filter.$or = [
+        { userId: new mongoose.Types.ObjectId(user.id) },
+        { userId: null },
+      ];
     } else {
-      query = query.eq('institute_id', user.instituteId).or(`user_id.eq.${user.id},user_id.is.null`);
+      filter.userId = new mongoose.Types.ObjectId(user.id);
     }
 
-    const { data, count, error } = await query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const [records, total] = await Promise.all([
+      NotificationDoc.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      NotificationDoc.countDocuments(filter),
+    ]);
 
-    if (error) throw error;
+    const data = records.map((n) => ({
+      id: n._id.toString(),
+      instituteId: n.instituteId ? n.instituteId.toString() : null,
+      userId: n.userId ? n.userId.toString() : null,
+      title: n.title,
+      message: n.message,
+      type: n.type,
+      isRead: n.isRead,
+      createdAt: n.createdAt,
+    }));
 
-    return apiSuccess(data || [], 'Notifications fetched', {
-      page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit),
+    return apiSuccess(data, 'Notifications fetched', {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (err) {
-    console.error(err);
+    console.error('List notifications error:', err);
     return apiError('Failed to fetch notifications', 500);
   }
 }
@@ -42,15 +68,16 @@ export async function PATCH(request: NextRequest) {
     const user = await getUserFromRequest(request);
     if (!user) return apiError('Not authenticated', 401);
 
-    // Mark all as read for current user
-    await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('user_id', user.id);
+    await dbConnect();
+
+    await NotificationDoc.updateMany(
+      { userId: new mongoose.Types.ObjectId(user.id) },
+      { $set: { isRead: true } }
+    );
 
     return apiSuccess(null, 'Notifications marked as read');
   } catch (err) {
-    console.error(err);
+    console.error('Mark notifications read error:', err);
     return apiError('Failed to update notifications', 500);
   }
 }

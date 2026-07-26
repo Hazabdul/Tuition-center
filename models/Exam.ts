@@ -7,9 +7,12 @@ export interface IExam extends Document {
   name: string;
   code: string;
   examDate?: Date | null;
+  startDate?: Date | null;
+  endDate?: Date | null;
   totalMarks: number;
   passingMarks: number;
   academicYear?: string | null;
+  status: 'draft' | 'scheduled' | 'ongoing' | 'completed' | 'published';
   notes?: string | null;
   isPublished: boolean;
   deletedAt?: Date | null;
@@ -25,9 +28,17 @@ const ExamSchema = new Schema<IExam>(
     name: { type: String, required: true, trim: true },
     code: { type: String, required: true, trim: true },
     examDate: { type: Date, default: null, index: true },
+    startDate: { type: Date, default: null },
+    endDate: { type: Date, default: null },
     totalMarks: { type: Number, default: 100 },
     passingMarks: { type: Number, default: 35 },
     academicYear: { type: String, default: null },
+    status: {
+      type: String,
+      default: 'draft',
+      enum: ['draft', 'scheduled', 'ongoing', 'completed', 'published'],
+      index: true,
+    },
     notes: { type: String, default: null },
     isPublished: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null, index: true },
