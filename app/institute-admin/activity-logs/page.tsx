@@ -21,12 +21,19 @@ interface LogRow {
   created_at: string;
 }
 
+function formatSafeDate(dateVal: any, pattern = 'MMM d, h:mm a'): string {
+  if (!dateVal) return '—';
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return '—';
+  return format(d, pattern);
+}
+
 const columns: Column<LogRow>[] = [
-  { key: 'created_at', header: 'Time', render: (r) => <span className="text-xs text-slate-500">{format(new Date(r.created_at), 'MMM d, h:mm a')}</span> },
+  { key: 'created_at', header: 'Time', render: (r) => <span className="text-xs text-slate-500">{formatSafeDate(r.created_at || (r as any).createdAt)}</span> },
   { key: 'userName', header: 'User', render: (r) => <span className="font-medium text-sm">{r.userName}</span> },
   { key: 'action', header: 'Action', render: (r) => <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{r.action}</span> },
-  { key: 'entity_type', header: 'Entity', render: (r) => r.entity_type ? <Badge variant="outline" className="text-xs">{r.entity_type}</Badge> : <span className="text-slate-400">—</span> },
-  { key: 'ip_address', header: 'IP', render: (r) => <span className="text-xs text-slate-400">{r.ip_address || '—'}</span> },
+  { key: 'entity_type', header: 'Entity', render: (r) => (r.entity_type || (r as any).entityType) ? <Badge variant="outline" className="text-xs">{r.entity_type || (r as any).entityType}</Badge> : <span className="text-slate-400">—</span> },
+  { key: 'ip_address', header: 'IP', render: (r) => <span className="text-xs text-slate-400">{r.ip_address || (r as any).ipAddress || '—'}</span> },
 ];
 
 export default function InstituteAdminActivityLogsPage() {
@@ -41,6 +48,8 @@ export default function InstituteAdminActivityLogsPage() {
       const res = await api.get<LogRow[]>(`/api/v1/activity-logs?${params}`);
       return res;
     },
+    placeholderData: (previousData) => previousData,
+    staleTime: 30 * 1000,
   });
 
   return (

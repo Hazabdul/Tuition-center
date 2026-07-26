@@ -169,7 +169,7 @@ export default function InstitutesPage() {
             </Select>
             <Button onClick={() => setShowOnboarding(true)} className="bg-blue-600 hover:bg-blue-700">
               <Plus className="h-4 w-4 mr-2" />
-              1-Click Onboard Institute
+              Add Institutes
             </Button>
           </>
         }
@@ -272,7 +272,7 @@ export default function InstitutesPage() {
   );
 }
 
-{/* 1-Click Multi-Step Onboarding Wizard Component */}
+{/* 1-Click Multi-Step Onboarding Wizard Component */ }
 function OnboardingWizardModal({ open, onOpenChange, onSuccess }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -338,18 +338,18 @@ function OnboardingWizardModal({ open, onOpenChange, onSuccess }: {
                 <Input value={form.code} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="PINNACLE01" required />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Institute Email</Label>
-                <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="info@pinnacle.edu" />
+                <Label className="text-xs">Institute Email *</Label>
+                <Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="info@pinnacle.edu" required />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Phone Number</Label>
-                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 9876543210" />
+                <Label className="text-xs">Phone Number *</Label>
+                <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+91 9876543210" required />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">City</Label>
-                <Input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
+                <Label className="text-xs">City *</Label>
+                <Input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder="e.g. Bangalore" required />
               </div>
             </div>
           </div>
@@ -432,7 +432,16 @@ function OnboardingWizardModal({ open, onOpenChange, onSuccess }: {
             <Button variant="outline" onClick={() => setStep(step - 1)}>Back</Button>
           )}
           {step < 3 && (
-            <Button onClick={() => setStep(step + 1)} disabled={!form.name || !form.code}>Next Step →</Button>
+            <Button
+              onClick={() => setStep(step + 1)}
+              disabled={
+                step === 1
+                  ? !form.name.trim() || !form.code.trim() || !form.email.trim() || !form.phone.trim() || !form.city.trim()
+                  : false
+              }
+            >
+              Next Step →
+            </Button>
           )}
           {step === 3 && (
             <Button onClick={handleComplete} className="bg-green-600 hover:bg-green-700" disabled={isSubmitting}>
@@ -448,7 +457,7 @@ function OnboardingWizardModal({ open, onOpenChange, onSuccess }: {
   );
 }
 
-{/* Quota & Subscription Management Drawer Component */}
+{/* Quota & Subscription Management Drawer Component */ }
 function QuotaManagementDrawer({ institute, open, onOpenChange, onSuccess }: {
   institute: InstituteRow;
   open: boolean;

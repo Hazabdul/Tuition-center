@@ -7,6 +7,9 @@ const nextConfig = {
     removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error'] } : false,
   },
   images: { unoptimized: true },
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'recharts', 'date-fns', '@radix-ui/react-icons'],
+  },
   async headers() {
     return [
       {

@@ -91,7 +91,9 @@ export async function POST(request: NextRequest) {
       notes,
     } = body;
 
-    if (!name || !code) return apiError('Name and code are required', 400);
+    if (!name || !code || !email || !phone || !city) {
+      return apiError('Name, code, email, phone, and city are required', 400);
+    }
 
     const existing = await InstituteDoc.findOne({ code: code.toUpperCase() });
     if (existing) return apiError('Institute code already exists', 409);

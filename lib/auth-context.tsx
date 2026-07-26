@@ -22,7 +22,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function initSession() {
       try {
-        const res = await fetch('/api/v1/auth/me');
+        let res = await fetch('/api/v1/auth/me');
+        if (res.status === 401) {
+          const refreshRes = await fetch('/api/v1/auth/refresh', { method: 'POST' });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            if (refreshData.success && refreshData.data?.accessToken) {
+              setAccessToken(refreshData.data.accessToken);
+            }
+            res = await fetch('/api/v1/auth/me');
+          }
+        }
         const data = await res.json();
         if (data.success && data.data?.user) {
           setUser(data.data.user);

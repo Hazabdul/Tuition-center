@@ -35,16 +35,29 @@ export async function GET(request: NextRequest) {
       ActivityLogDoc.countDocuments(filter),
     ]);
 
-    const data = records.map((a) => ({
-      id: a._id.toString(),
-      instituteId: a.instituteId?.toString() ?? null,
-      userId: a.userId,
-      action: a.action,
-      entityType: a.entityType ?? null,
-      entityId: a.entityId ?? null,
-      ipAddress: a.ipAddress ?? null,
-      createdAt: a.createdAt,
-    }));
+    const data = records.map((a: any) => {
+      const u = a.userId;
+      const userName = u
+        ? `${u.firstName || u.first_name || ''} ${u.lastName || u.last_name || ''}`.trim() || 'User'
+        : 'System';
+
+      return {
+        id: a._id.toString(),
+        instituteId: a.instituteId?.toString() ?? null,
+        userId: a.userId,
+        userName,
+        user_name: userName,
+        action: a.action,
+        entityType: a.entityType ?? null,
+        entity_type: a.entityType ?? null,
+        entityId: a.entityId ?? null,
+        entity_id: a.entityId ?? null,
+        ipAddress: a.ipAddress ?? null,
+        ip_address: a.ipAddress ?? null,
+        createdAt: a.createdAt,
+        created_at: a.createdAt,
+      };
+    });
 
     return apiSuccess(data, 'Activity logs fetched', {
       page, limit, total, totalPages: Math.ceil(total / limit),

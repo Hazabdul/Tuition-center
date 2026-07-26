@@ -57,6 +57,10 @@ export async function POST(request: NextRequest) {
     const response = apiSuccess({ user, accessToken: newAccessToken, refreshToken: newRefreshToken }, 'Token refreshed');
     response.headers.append(
       'Set-Cookie',
+      `access_token=${newAccessToken}; Path=/; Max-Age=900; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
+    );
+    response.headers.append(
+      'Set-Cookie',
       `refresh_token=${newRefreshToken}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
     );
 

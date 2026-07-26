@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, ReactNode, createContext, useContext } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/lib/auth-context';
@@ -29,7 +29,33 @@ export interface NavSection {
   items: NavItem[];
 }
 
+const DashboardLayoutContext = createContext<boolean>(false);
+
 export function DashboardLayout({
+  children,
+  navSections,
+  role,
+}: {
+  children: ReactNode;
+  navSections: NavSection[];
+  role: Role;
+}) {
+  const isNestedLayout = useContext(DashboardLayoutContext);
+
+  if (isNestedLayout) {
+    return <>{children}</>;
+  }
+
+  return (
+    <DashboardLayoutContext.Provider value={true}>
+      <DashboardLayoutContent navSections={navSections} role={role}>
+        {children}
+      </DashboardLayoutContent>
+    </DashboardLayoutContext.Provider>
+  );
+}
+
+function DashboardLayoutContent({
   children,
   navSections,
   role,
@@ -291,7 +317,8 @@ function NotificationBellDropdown() {
         return { notifications: [], unreadCount: 0 };
       }
     },
-    refetchInterval: 10000,
+    refetchInterval: 60000,
+    staleTime: 30000,
   });
 
   async function handleMarkAllRead() {
@@ -353,5 +380,94 @@ function NotificationBellDropdown() {
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+export function DashboardLayoutSkeleton({ children }: { children?: ReactNode }) {
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* Desktop Sidebar Skeleton */}
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 flex-col w-64 border-r border-slate-200 bg-white z-40">
+        <div className="flex items-center justify-between h-16 px-5 border-b border-slate-200">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 flex-shrink-0">
+              <GraduationCap className="h-5 w-5 text-white" />
+            </div>
+            <span className="font-bold text-slate-900 text-base">EduManage</span>
+          </div>
+          <div className="h-8 w-8 rounded-lg bg-slate-100 animate-pulse" />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+          <div>
+            <div className="h-3 w-16 bg-slate-200 rounded mb-3 ml-3 animate-pulse" />
+            <div className="space-y-1.5">
+              {[...Array(2)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-50/80">
+                  <div className="h-4 w-4 rounded bg-slate-200 animate-pulse flex-shrink-0" />
+                  <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="h-3 w-24 bg-slate-200 rounded mb-3 ml-3 animate-pulse" />
+            <div className="space-y-1.5">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-50/80">
+                  <div className="h-4 w-4 rounded bg-slate-200 animate-pulse flex-shrink-0" />
+                  <div className="h-4 w-32 bg-slate-200 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200 p-3">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-blue-100 animate-pulse flex-shrink-0" />
+            <div className="flex-1 space-y-1">
+              <div className="h-3.5 w-24 bg-slate-200 rounded animate-pulse" />
+              <div className="h-3 w-16 bg-slate-100 rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="lg:pl-64">
+        {/* Topbar Skeleton */}
+        <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 border-b border-slate-200 bg-white/80 backdrop-blur">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded bg-slate-100 animate-pulse lg:hidden" />
+            <div className="hidden md:flex items-center gap-2">
+              <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
+              <ChevronRight className="h-3 w-3 text-slate-300" />
+              <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-slate-100 animate-pulse" />
+            <div className="h-8 w-8 rounded-full bg-blue-100 animate-pulse" />
+          </div>
+        </header>
+
+        {/* Page Content Skeleton */}
+        <main className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto">
+          {children || (
+            <div className="space-y-6 animate-pulse">
+              <div className="h-8 w-48 bg-slate-200 rounded-md" />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-28 bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3" />
+                ))}
+              </div>
+              <div className="h-72 bg-white border border-slate-200 rounded-xl p-4 shadow-sm" />
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
   );
 }
